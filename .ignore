@@ -1,0 +1,41 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Python caches and virtualenvs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local env and secrets
+.env
+.env.*
+*.env.local
+tmp-safe-env-test.env
+
+# Local review / temp files
+.tmp-review-venv/
+tmp-*/
+tmp_*/
+temp-*/
+temp_*/
+*.tmp
+*.temp
+*.log
+*.bak
+*.orig
+*.rej
+
+# Runtime / tool leftovers
+.coverage
+coverage.xml
+htmlcov/

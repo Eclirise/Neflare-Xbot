@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule mainland-China SSH geo-block nftables set refresh
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=1w
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

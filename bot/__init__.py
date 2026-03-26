@@ -1,0 +1,2 @@
+"""NeFlare bot package."""
+

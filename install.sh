@@ -86,6 +86,7 @@ main() {
   mkdir_root_only "${NEFLARE_STATE_DIR}"
   mkdir_root_only "${NEFLARE_BACKUP_ROOT}"
   detect_supported_os
+  bootstrap_python3_if_missing
   set_default_config
   load_installed_config_if_present
   load_user_config_file "${CONFIG_INPUT_FILE}"

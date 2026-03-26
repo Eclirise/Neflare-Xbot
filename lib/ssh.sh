@@ -63,6 +63,8 @@ ensure_admin_user() {
     install_text "${SUDOERS_DROPIN_PATH}" "${ADMIN_USER} ALL=(ALL:ALL) NOPASSWD:ALL
 " 0440 root root
     visudo -cf "${SUDOERS_DROPIN_PATH}" >/dev/null
+  else
+    rm -f "${SUDOERS_DROPIN_PATH}"
   fi
 }
 

@@ -15,17 +15,16 @@ from state import load_last_daily_marker, load_offset, save_last_daily_marker, s
 from telegram_api import TelegramAPI
 
 
-def should_send_daily(config) -> bool:
+def pending_daily_marker(config) -> str | None:
     if not config.chat_id:
-        return False
+        return None
     now = datetime.now(config.report_tz)
     marker = now.strftime("%Y-%m-%d")
     if now.strftime("%H:%M") != config.report_time:
-        return False
+        return None
     if load_last_daily_marker(config) == marker:
-        return False
-    save_last_daily_marker(config, marker)
-    return True
+        return None
+    return marker
 
 
 def run_poll_loop(config) -> int:
@@ -42,8 +41,10 @@ def run_poll_loop(config) -> int:
     offset = load_offset(config)
     while True:
         try:
-            if should_send_daily(config):
+            daily_marker = pending_daily_marker(config)
+            if daily_marker:
                 api.send_message(config.chat_id, daily_text(config))
+                save_last_daily_marker(config, daily_marker)
 
             updates = api.get_updates(offset)
             for update in updates:

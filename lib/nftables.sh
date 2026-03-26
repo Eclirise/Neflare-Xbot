@@ -115,8 +115,19 @@ apply_nftables_file() {
     rm -f "${previous}"
     return 1
   fi
+  if ! systemctl enable --now nftables >/dev/null 2>&1; then
+    warn "Failed to enable/start nftables after applying rules; restoring previous configuration"
+    if [[ -s "${previous}" ]]; then
+      cp -a "${previous}" "${NFTABLES_MAIN_FILE}"
+      nft -f "${NFTABLES_MAIN_FILE}" || true
+    else
+      rm -f "${NFTABLES_MAIN_FILE}"
+    fi
+    systemctl enable --now nftables >/dev/null 2>&1 || true
+    rm -f "${previous}"
+    return 1
+  fi
   rm -f "${previous}"
-  systemctl enable nftables >/dev/null 2>&1 || true
   success "nftables rules applied successfully"
 }
 

@@ -28,6 +28,28 @@ def load_env_file(path: str) -> Dict[str, str]:
     return data
 
 
+def load_zoneinfo(value: str) -> ZoneInfo:
+    candidate = str(value or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(candidate)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def parse_float(value: str, default: float) -> float:
+    try:
+        return float(str(value).strip() or str(default))
+    except Exception:
+        return default
+
+
+def parse_int(value: str, default: int) -> int:
+    try:
+        return int(str(value).strip() or str(default))
+    except Exception:
+        return default
+
+
 @dataclass
 class Config:
     ui_lang: str
@@ -68,10 +90,10 @@ def load_config() -> Config:
         bot_token=str(merged.get("BOT_TOKEN", "")).strip(),
         chat_id=str(merged.get("CHAT_ID", "")).strip(),
         report_time=str(merged.get("REPORT_TIME", "08:00")).strip() or "08:00",
-        report_tz=ZoneInfo(report_tz),
+        report_tz=load_zoneinfo(report_tz),
         network_interface=str(merged.get("NETWORK_INTERFACE", "")).strip(),
-        quota_monthly_cap_gb=float(merged.get("QUOTA_MONTHLY_CAP_GB", "0") or "0"),
-        quota_reset_day_utc=int(merged.get("QUOTA_RESET_DAY_UTC", "1") or "1"),
+        quota_monthly_cap_gb=parse_float(str(merged.get("QUOTA_MONTHLY_CAP_GB", "0") or "0"), 0.0),
+        quota_reset_day_utc=parse_int(str(merged.get("QUOTA_RESET_DAY_UTC", "1") or "1"), 1),
         neflare_config_file=neflare_config,
         neflare_state_dir=str(merged.get("NEFLARE_STATE_DIR", "/var/lib/neflare")).strip() or "/var/lib/neflare",
         bot_state_dir=str(merged.get("NEFLARE_BOT_STATE_DIR", "/var/lib/neflare-bot")).strip() or "/var/lib/neflare-bot",

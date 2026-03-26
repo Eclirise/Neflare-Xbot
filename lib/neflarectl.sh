@@ -116,6 +116,7 @@ case "${cmd}" in
   restart-xray)
     ensure_root
     require_explicit_yes "${1:-}"
+    validate_xray_config_file "${XRAY_CONFIG_PATH}"
     systemctl restart xray
     ;;
   reboot)

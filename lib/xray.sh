@@ -3,7 +3,8 @@
 readonly XRAY_CONFIG_PATH="/usr/local/etc/xray/config.json"
 readonly XRAY_OVERRIDE_DIR="/etc/systemd/system/xray.service.d"
 readonly XRAY_OVERRIDE_PATH="${XRAY_OVERRIDE_DIR}/10-neflare-hardening.conf"
-readonly XRAY_INSTALL_SCRIPT_URL="https://github.com/XTLS/Xray-install/raw/main/install-release.sh"
+readonly XRAY_INSTALL_SCRIPT_URL="${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
+readonly XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-c983ef738a6890f803ca6e612958c5f3acf7cbf07362b655c4f6e43f9a71a160}"
 XRAY_BINARY_ROLLBACK_COPY="${XRAY_BINARY_ROLLBACK_COPY:-}"
 XRAY_BINARY_TARGET_PATH="${XRAY_BINARY_TARGET_PATH:-}"
 
@@ -26,6 +27,9 @@ xray_version_string() {
 download_xray_install_script() {
   local destination="$1"
   curl -fsSL "${XRAY_INSTALL_SCRIPT_URL}" -o "${destination}"
+  local actual_sha
+  actual_sha="$(sha256sum "${destination}" | awk '{print $1}')"
+  [[ "${actual_sha}" == "${XRAY_INSTALL_SCRIPT_SHA256}" ]] || die "Unexpected Xray install script checksum for ${XRAY_INSTALL_SCRIPT_URL}."
   chmod 0700 "${destination}"
 }
 

@@ -13,7 +13,7 @@ ensure_vnstat_interface_initialized() {
 
 write_bot_env_file() {
   snapshot_file_once "${BOT_ENV_FILE}"
-  render_template_to "${NEFLARE_SOURCE_ROOT}/templates/bot.env.tpl" "${BOT_ENV_FILE}" \
+  write_env_file "${BOT_ENV_FILE}" \
     "UI_LANG=${UI_LANG}" \
     "NEFLARE_CONFIG_FILE=${NEFLARE_CONFIG_FILE}" \
     "NEFLARE_STATE_DIR=${NEFLARE_STATE_DIR}" \
@@ -25,7 +25,6 @@ write_bot_env_file() {
     "NETWORK_INTERFACE=${NETWORK_INTERFACE}" \
     "QUOTA_MONTHLY_CAP_GB=${QUOTA_MONTHLY_CAP_GB}" \
     "QUOTA_RESET_DAY_UTC=${QUOTA_RESET_DAY_UTC}"
-  chmod 0600 "${BOT_ENV_FILE}"
 }
 
 install_bot_unit() {
@@ -36,7 +35,10 @@ install_bot_unit() {
 
 configure_optional_bot() {
   if [[ "${ENABLE_BOT}" != "yes" ]]; then
-    info "Telegram bot not enabled; skipping bot deployment."
+    snapshot_file_once "${BOT_ENV_FILE}"
+    systemctl disable --now neflare-bot >/dev/null 2>&1 || true
+    rm -f "${BOT_ENV_FILE}"
+    info "Telegram bot not enabled; disabled the service and removed the bot environment file."
     return 0
   fi
 

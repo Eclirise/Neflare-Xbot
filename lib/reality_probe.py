@@ -111,6 +111,26 @@ def collect_sans(cert: dict) -> List[str]:
     return [entry[1] for entry in cert.get("subjectAltName", []) if len(entry) >= 2]
 
 
+def san_matches_domain(domain: str, san: str) -> bool:
+    normalized_domain = domain.lower().rstrip(".")
+    normalized_san = san.lower().rstrip(".")
+    if normalized_san == normalized_domain:
+        return True
+    if not normalized_san.startswith("*."):
+        return False
+    suffix = normalized_san[2:]
+    if not suffix or "." not in suffix:
+        return False
+    if not normalized_domain.endswith("." + suffix):
+        return False
+    return len(normalized_domain.split(".")) == len(suffix.split(".")) + 1
+
+
+def certificate_matches_domain(domain: str, cert: dict) -> bool:
+    sans = collect_sans(cert)
+    return any(san_matches_domain(domain, san) for san in sans)
+
+
 def call_xray_tls_ping(domain: str) -> Optional[Dict[str, str]]:
     if shutil.which("xray") is None:
         return None
@@ -433,8 +453,9 @@ def probe_domain(domain: str, attempts: int, timeout: float, public_port: int) -
     tls_success_ratio = round(len(successful) / float(len(results) or 1), 3)
     tls13 = any(item.tls_version == "TLSv1.3" for item in successful)
     cert = successful[0].certificate if successful else None
-    sans = collect_sans(cert or {})
-    san_match = bool(sans) and normalized in {san.lower() for san in sans}
+    certificates = [item.certificate for item in successful if item.certificate]
+    sans = sorted({san for item_cert in certificates for san in collect_sans(item_cert or {})})
+    san_match = bool(certificates) and all(certificate_matches_domain(normalized, item_cert or {}) for item_cert in certificates)
     latency_values = [item.latency_ms for item in successful if item.latency_ms is not None]
     median = round(statistics.median(latency_values), 2) if latency_values else None
     stdev = round(statistics.pstdev(latency_values), 2) if len(latency_values) > 1 else 0.0 if latency_values else None
@@ -559,6 +580,12 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--public-port", type=int, default=443, help="Public REALITY listener port for policy linting")
     parser.add_argument("domains", nargs="+", help="Candidate domains or URLs")
     args = parser.parse_args(argv)
+    if args.attempts < 1:
+        raise SystemExit("--attempts must be >= 1")
+    if args.timeout <= 0:
+        raise SystemExit("--timeout must be > 0")
+    if not 1 <= args.public_port <= 65535:
+        raise SystemExit("--public-port must be between 1 and 65535")
 
     candidates = [probe_domain(domain, args.attempts, args.timeout, args.public_port) for domain in args.domains]
     payload = {

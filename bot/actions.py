@@ -11,6 +11,8 @@ from i18n import tr
 from reality import reality_set
 from state import load_confirmations, save_confirmations
 
+XRAY_CONFIG_PATH = "/usr/local/etc/xray/config.json"
+
 
 def confirmation_key(chat_id: str, action: str) -> str:
     return f"{chat_id}:{action}"
@@ -31,16 +33,32 @@ def require_confirmation(config: Config, chat_id: str, action: str, ttl_seconds:
 
 
 def restart_xray(config: Config) -> str:
+    validate = subprocess.run(
+        ["xray", "run", "-test", "-c", XRAY_CONFIG_PATH],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if validate.returncode != 0:
+        raise RuntimeError(validate.stderr.strip() or validate.stdout.strip() or "xray config validation failed")
     proc = subprocess.run(["systemctl", "restart", "xray"], capture_output=True, text=True, timeout=60, check=False)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "systemctl restart xray failed")
     return tr(config, "xray_restarted")
 
 
+def delayed_systemctl(action: str, delay_seconds: int = 5) -> None:
+    subprocess.Popen(
+        ["/bin/sh", "-c", f"sleep {int(delay_seconds)}; systemctl {action}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 def reboot_server(config: Config) -> str:
-    proc = subprocess.run(["systemctl", "reboot"], capture_output=True, text=True, timeout=30, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "systemctl reboot failed")
+    delayed_systemctl("reboot")
     return tr(config, "reboot_accepted")
 
 

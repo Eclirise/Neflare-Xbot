@@ -162,6 +162,7 @@ sudo ./install.sh --upgrade-xray
 ```
 
 This is intentionally separate from routine repo updates.
+The upstream Xray install helper is pinned by this repo to an exact commit and SHA-256; changing that pin is an explicit repo update, not an implicit fetch of upstream `main`.
 
 The CN SSH geo-block updater runs weekly by systemd timer. You can force an immediate refresh with:
 

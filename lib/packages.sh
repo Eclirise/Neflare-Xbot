@@ -16,6 +16,16 @@ APT_PACKAGES=(
   vnstat
 )
 
+bootstrap_python3_if_missing() {
+  if command_exists python3; then
+    return 0
+  fi
+  info "python3 not found; installing a bootstrap python3 package before configuration parsing."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y --no-install-recommends python3
+}
+
 install_base_packages() {
   info "Installing required Debian packages"
   export DEBIAN_FRONTEND=noninteractive
@@ -30,6 +40,9 @@ install_runtime_assets() {
   mkdir_system_dir "${NEFLARE_INSTALL_ROOT}" 0755
   mkdir_system_dir "${NEFLARE_INSTALL_ROOT}/lib" 0755
   mkdir_system_dir "${NEFLARE_BOT_INSTALL_DIR}" 0755
+
+  copy_tree_contents "${NEFLARE_SOURCE_ROOT}/templates" "${NEFLARE_INSTALL_ROOT}/templates"
+  copy_tree_contents "${NEFLARE_SOURCE_ROOT}/systemd" "${NEFLARE_INSTALL_ROOT}/systemd"
 
   local file
   while IFS= read -r -d '' file; do

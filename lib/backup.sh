@@ -20,7 +20,9 @@ snapshot_path_for() {
 
 snapshot_file_once() {
   local path="$1"
-  [[ -n "${SNAPSHOT_DIR}" ]] || die "Snapshot directory not initialized."
+  if [[ -z "${SNAPSHOT_DIR}" ]]; then
+    create_install_snapshot
+  fi
   local target
   target="$(snapshot_path_for "${path}")"
   if [[ -e "${target}" || -e "${target}.missing" ]]; then
@@ -48,4 +50,3 @@ restore_snapshot_path() {
   rm -rf "${path}"
   cp -a "${target}" "${path}"
 }
-

@@ -221,6 +221,8 @@ def quota_snapshot(config: Config) -> Dict[str, Any]:
 
 
 def quota_set(config: Config, used_gb: float, remain_gb: float, next_reset_utc: str | None) -> Dict[str, Any]:
+    if used_gb < 0 or remain_gb < 0:
+        raise ValueError("used_gb and remain_gb must be non-negative")
     state = load_quota_state(config)
     cap = round(used_gb + remain_gb, 3)
     state["cap_gb"] = cap

@@ -73,7 +73,7 @@ require_reality_selection_allowed() {
 
 select_reality_candidate() {
   local json_file="$1"
-  local recommended choice current_selected default_choice
+  local recommended choice current_selected default_choice current_selected_recommendation
   recommended="$(jq -r '.recommended // empty' "${json_file}")"
 
   print_reality_probe_report "${json_file}"
@@ -85,8 +85,14 @@ select_reality_candidate() {
   current_selected=""
   if [[ -n "${REALITY_SELECTED_DOMAIN}" ]] && jq -e --arg domain "${REALITY_SELECTED_DOMAIN}" '.candidates[] | select(.domain == $domain and .compatible == true)' "${json_file}" >/dev/null; then
     current_selected="${REALITY_SELECTED_DOMAIN}"
+    current_selected_recommendation="$(jq -r --arg domain "${REALITY_SELECTED_DOMAIN}" '.candidates[] | select(.domain == $domain) | .policy.recommendation' "${json_file}")"
     if [[ -n "${recommended}" && "${recommended}" != "${current_selected}" ]]; then
-      info "Current REALITY domain ${current_selected} remains compatible. Probe recommendation is ${recommended}."
+      if [[ "${REALITY_AUTO_RECOMMEND}" == "yes" && "${current_selected_recommendation}" != "recommended" && "${current_selected_recommendation}" != "acceptable" ]]; then
+        info "Current REALITY domain ${current_selected} remains compatible but is rated ${current_selected_recommendation}. Auto-select is enabled, so the safer recommended candidate ${recommended} will be preferred."
+        current_selected=""
+      else
+        info "Current REALITY domain ${current_selected} remains compatible. Probe recommendation is ${recommended}."
+      fi
     fi
   fi
 

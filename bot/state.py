@@ -115,9 +115,11 @@ def update_env_value(path: str, key: str, value: str) -> None:
 
 def bind_chat_id(config: Config, chat_id: str) -> None:
     update_env_value(config.neflare_config_file, "CHAT_ID", chat_id)
+    update_env_value(config.neflare_config_file, "BOT_BIND_TOKEN", "")
     bot_env = os.environ.get("NEFLARE_BOT_ENV", "/etc/neflare/bot.env")
     if os.path.isfile(bot_env):
         update_env_value(bot_env, "CHAT_ID", chat_id)
+        update_env_value(bot_env, "BOT_BIND_TOKEN", "")
 
 
 def confirmations_path(config: Config) -> str:

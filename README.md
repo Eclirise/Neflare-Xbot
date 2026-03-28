@@ -112,6 +112,7 @@ Important keys:
 - `REPO_SYNC_DIR`
 - `BOT_TOKEN`
 - `CHAT_ID`
+- `BOT_BIND_TOKEN`
 - `REPORT_TIME`
 - `REPORT_TZ`
 - `QUOTA_MONTHLY_CAP_GB`
@@ -228,14 +229,16 @@ Installer behavior:
 
 - if you enable bot support, the installer prompts for `BOT_TOKEN`
 - `CHAT_ID` is optional during install
-- if `BOT_TOKEN` is set and `CHAT_ID` is left blank, the bot starts unbound and the first private `/start` binds that Telegram account as the sole controller
+- if `BOT_TOKEN` is set and `CHAT_ID` is left blank, the bot starts unbound, records candidate chats, and the installer generates a one-time `BOT_BIND_TOKEN`
+- send `/start` to the bot to see the currently known chat ids, then send `/claim <BOT_BIND_TOKEN>` from your chosen private chat to bind that Telegram account as the sole controller
 - once `CHAT_ID` is bound, only that chat can issue bot commands
-- daily notifications are sent to the bound `CHAT_ID` at the configured `REPORT_TIME` / `REPORT_TZ`
+- once bound, the bot sends a startup notice plus command list to the authorized chat and continues daily notifications at the configured `REPORT_TIME` / `REPORT_TZ`
 
 Supported commands:
 
 - `/start`
 - `/help`
+- `/chat_ids`
 - `/status`
 - `/daily`
 - `/quota`
@@ -279,7 +282,9 @@ Automatic chat binding:
 
 - leave `CHAT_ID` blank during install
 - start the bot service
-- open a private chat with the bot and send `/start`
+- open chats with the bot as needed so it can record candidate chat ids
+- send `/start` to inspect the currently seen chat ids
+- send `/claim <BOT_BIND_TOKEN>` from your chosen private chat
 - that private chat becomes the sole authorized controller
 
 Manual override binding:

@@ -28,6 +28,7 @@ set_default_config() {
   REPO_SYNC_DIR="${REPO_SYNC_DIR:-/opt/Neflare-Xbot}"
   BOT_TOKEN="${BOT_TOKEN:-}"
   CHAT_ID="${CHAT_ID:-}"
+  BOT_BIND_TOKEN="${BOT_BIND_TOKEN:-}"
   REPORT_TIME="${REPORT_TIME:-08:00}"
   REPORT_TZ="${REPORT_TZ:-Asia/Shanghai}"
   QUOTA_MONTHLY_CAP_GB="${QUOTA_MONTHLY_CAP_GB:-0}"
@@ -273,6 +274,7 @@ save_installed_config() {
     "REPO_SYNC_DIR=${REPO_SYNC_DIR}" \
     "BOT_TOKEN=${BOT_TOKEN}" \
     "CHAT_ID=${CHAT_ID}" \
+    "BOT_BIND_TOKEN=${BOT_BIND_TOKEN}" \
     "REPORT_TIME=${REPORT_TIME}" \
     "REPORT_TZ=${REPORT_TZ}" \
     "QUOTA_MONTHLY_CAP_GB=${QUOTA_MONTHLY_CAP_GB}" \
@@ -317,6 +319,9 @@ collect_install_config() {
     ADMIN_PUBLIC_KEY="$(guess_public_key_from_system)"
   fi
   resolve_network_defaults
+  if [[ "${ENABLE_BOT}" == "yes" && -n "${BOT_TOKEN}" && -z "${CHAT_ID}" && -z "${BOT_BIND_TOKEN}" ]]; then
+    BOT_BIND_TOKEN="$(generate_hex 8)"
+  fi
   validate_runtime_config
   save_installed_config
 }

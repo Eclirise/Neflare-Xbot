@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import datetime
 
-from commands import bind_chat, format_chat_candidates, handle_message
+from commands import bind_chat, format_chat_candidates, handle_message, startup_text
 from config import load_config
 from i18n import tr
 from maintenance import (
@@ -53,6 +53,11 @@ def run_poll_loop(config) -> int:
         api.call("deleteWebhook", {"drop_pending_updates": "false"})
     except Exception:
         pass
+    if config.chat_id:
+        try:
+            api.send_text(config.chat_id, startup_text(config))
+        except Exception as exc:
+            print(f"startup notify error: {exc}", file=sys.stderr)
 
     offset = load_offset(config)
     while True:

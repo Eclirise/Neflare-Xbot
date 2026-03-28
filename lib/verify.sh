@@ -300,7 +300,7 @@ print_final_summary_lists() {
     echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot and neflare-reality-lint-watch.timer"
   fi
   if [[ "${ENABLE_BOT}" == "yes" && -n "${BOT_TOKEN}" && -z "${CHAT_ID}" ]]; then
-    echo "- Send /start to the bot from your private Telegram account to bind the sole controller chat"
+    echo "- Send /start to the bot to view candidate chat ids, then send /claim ${BOT_BIND_TOKEN} from your private Telegram chat to bind the sole controller"
   fi
   if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
     echo "- Remove temporary admin allow entries after you no longer need migration safety access"

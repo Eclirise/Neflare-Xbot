@@ -28,6 +28,7 @@ write_bot_env_file() {
     "REPO_SYNC_DIR=${REPO_SYNC_DIR}" \
     "BOT_TOKEN=${BOT_TOKEN}" \
     "CHAT_ID=${CHAT_ID}" \
+    "BOT_BIND_TOKEN=${BOT_BIND_TOKEN}" \
     "REPORT_TIME=${REPORT_TIME}" \
     "REPORT_TZ=${REPORT_TZ}" \
     "NETWORK_INTERFACE=${NETWORK_INTERFACE}" \

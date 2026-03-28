@@ -25,6 +25,7 @@ def help_text(config: Config) -> str:
         tr(config, "help_header"),
         "/start",
         "/help",
+        "/chat_ids",
         "/status",
         "/daily",
         "/quota",
@@ -67,6 +68,10 @@ def format_chat_candidates(config: Config) -> str:
     return "\n".join(lines)
 
 
+def chat_candidates_text(config: Config) -> str:
+    return "\n".join([tr(config, "chat_candidates_header"), format_chat_candidates(config)])
+
+
 def format_reality_candidate(config: Config, candidate: Dict[str, Any]) -> str:
     discouraged = ", ".join(candidate.get("discouraged_patterns") or []) or tr(config, "none")
     unresolved = "; ".join(candidate.get("unresolved_warnings") or []) or tr(config, "none")
@@ -97,16 +102,54 @@ def unbound_start_text(config: Config, message: Dict[str, Any]) -> str:
     if chat_type != "private":
         return "\n".join(
             [
+                tr(config, "unbound_intro"),
                 tr(config, "unbound_private_required"),
                 tr(config, "current_chat_id", chat_id=chat_id),
+                "",
+                chat_candidates_text(config),
             ]
         )
+    lines = [
+        tr(config, "unbound_intro"),
+        tr(config, "current_chat_id", chat_id=chat_id),
+        "",
+        chat_candidates_text(config),
+    ]
+    if config.bot_bind_token:
+        lines.extend(["", tr(config, "unbound_claim_hint", token=config.bot_bind_token)])
+    else:
+        lines.extend(["", tr(config, "unbound_claim_missing")])
+    return "\n".join(lines)
 
+
+def claim_chat(config: Config, message: Dict[str, Any], token: str) -> str:
+    chat = message.get("chat") or {}
+    chat_id = str(chat.get("id", "")).strip()
+    chat_type = str(chat.get("type", "")).strip().lower()
+    if chat_type != "private":
+        return tr(config, "claim_private_required")
+    if not config.bot_bind_token:
+        return tr(config, "unbound_claim_missing")
+    if str(token).strip() != str(config.bot_bind_token).strip():
+        return tr(config, "claim_token_invalid")
     bind_chat_id(config, chat_id)
     config.chat_id = chat_id
+    config.bot_bind_token = ""
     return "\n".join(
         [
-            tr(config, "autobind_success", chat_id=chat_id),
+            tr(config, "claim_success", chat_id=chat_id),
+            tr(config, "daily_schedule", time=config.report_time, tz=report_tz_label(config)),
+            "",
+            help_text(config),
+        ]
+    )
+
+
+def startup_text(config: Config) -> str:
+    return "\n".join(
+        [
+            tr(config, "startup_notice"),
+            tr(config, "authorized_chat", chat_id=config.chat_id or tr(config, "none")),
             tr(config, "daily_schedule", time=config.report_time, tz=report_tz_label(config)),
             "",
             help_text(config),
@@ -129,8 +172,14 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
     command = parts[0].lower()
 
     if not config.chat_id:
+        if command == "/chat_ids":
+            return chat_candidates_text(config)
         if command == "/start":
             return unbound_start_text(config, message)
+        if command == "/claim":
+            if len(parts) != 2:
+                return tr(config, "claim_usage")
+            return claim_chat(config, message, parts[1])
         return None
 
     if not is_authorized(config, chat_id):
@@ -138,6 +187,8 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
 
     if command in {"/start", "/help"}:
         return help_text(config)
+    if command == "/chat_ids":
+        return chat_candidates_text(config)
     if command == "/status":
         return status_text(config)
     if command == "/daily":

@@ -56,6 +56,7 @@ class Config:
     ui_lang: str
     bot_token: str
     chat_id: str
+    bot_bind_token: str
     enable_docker_tests: str
     bot_log_retention_days: int
     bot_log_max_bytes: int
@@ -96,6 +97,7 @@ def load_config() -> Config:
         ui_lang=ui_lang,
         bot_token=str(merged.get("BOT_TOKEN", "")).strip(),
         chat_id=str(merged.get("CHAT_ID", "")).strip(),
+        bot_bind_token=str(merged.get("BOT_BIND_TOKEN", "")).strip(),
         enable_docker_tests=str(merged.get("ENABLE_DOCKER_TESTS", "yes")).strip() or "yes",
         bot_log_retention_days=parse_int(str(merged.get("BOT_LOG_RETENTION_DAYS", "14") or "14"), 14),
         bot_log_max_bytes=parse_int(str(merged.get("BOT_LOG_MAX_BYTES", "65536") or "65536"), 65536),

@@ -31,6 +31,10 @@ class TelegramAPI:
             },
         )
 
+    def send_text(self, chat_id: str, text: str, max_length: int = 3500) -> None:
+        for chunk in split_text(text, max_length=max_length):
+            self.send_message(chat_id, chunk)
+
     def get_updates(self, offset: int) -> List[Dict[str, Any]]:
         return self.call(
             "getUpdates",
@@ -41,4 +45,24 @@ class TelegramAPI:
             },
             timeout=65,
         )
+
+
+def split_text(text: str, max_length: int = 3500) -> List[str]:
+    content = str(text or "").strip()
+    if not content:
+        return []
+    if len(content) <= max_length:
+        return [content]
+
+    chunks: List[str] = []
+    remaining = content
+    while len(remaining) > max_length:
+        split_at = remaining.rfind("\n", 0, max_length)
+        if split_at <= 0:
+            split_at = max_length
+        chunks.append(remaining[:split_at].rstrip())
+        remaining = remaining[split_at:].lstrip("\n")
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 

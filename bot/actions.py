@@ -8,6 +8,7 @@ from typing import Tuple
 
 from config import Config
 from i18n import tr
+from maintenance import queue_repo_sync
 from reality import reality_set
 from state import load_confirmations, save_confirmations
 
@@ -18,7 +19,13 @@ def confirmation_key(chat_id: str, action: str) -> str:
     return f"{chat_id}:{action}"
 
 
-def require_confirmation(config: Config, chat_id: str, action: str, ttl_seconds: int = 60) -> Tuple[bool, str]:
+def require_confirmation(
+    config: Config,
+    chat_id: str,
+    action: str,
+    ttl_seconds: int = 60,
+    confirm_command: str | None = None,
+) -> Tuple[bool, str]:
     now = time.time()
     confirmations = load_confirmations(config)
     key = confirmation_key(chat_id, action)
@@ -29,7 +36,8 @@ def require_confirmation(config: Config, chat_id: str, action: str, ttl_seconds:
         return True, ""
     confirmations[key] = now + ttl_seconds
     save_confirmations(config, confirmations)
-    return False, tr(config, "repeat_confirm", action=action, ttl=ttl_seconds)
+    command_text = confirm_command or f"/{action}"
+    return False, tr(config, "repeat_confirm_command", command=command_text, ttl=ttl_seconds)
 
 
 def restart_xray(config: Config) -> str:
@@ -64,3 +72,7 @@ def reboot_server(config: Config) -> str:
 
 def set_reality(config: Config, domain: str) -> str:
     return reality_set(config, domain, force=False)
+
+
+def queue_repo_update(config: Config, chat_id: str) -> str:
+    return queue_repo_sync(config, chat_id)

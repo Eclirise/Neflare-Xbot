@@ -82,6 +82,10 @@ case "${cmd}" in
     lint_current_reality_policy
     policy_state_field '.selected'
     ;;
+  reality-lint-watch)
+    ensure_root
+    python_bot_main --run-reality-lint-watch
+    ;;
   status)
     python_bot_main --status-text
     ;;
@@ -103,6 +107,27 @@ case "${cmd}" in
     ;;
   list-chat-candidates)
     python_bot_main --list-chat-candidates
+    ;;
+  tests)
+    python_bot_main --tests-text
+    ;;
+  test-run)
+    ensure_root
+    python_bot_main --run-network-test "$@"
+    ;;
+  lint-log)
+    python_bot_main --lint-log-text
+    ;;
+  test-log)
+    python_bot_main --test-log-text
+    ;;
+  repo-log)
+    python_bot_main --repo-log-text
+    ;;
+  repo-sync)
+    ensure_root
+    require_explicit_yes "${1:-}"
+    python_bot_main --run-repo-sync
     ;;
   send-daily)
     python_bot_main --send-daily
@@ -137,6 +162,7 @@ Commands:
   reality-test [--json] <domain> [...]
   reality-set <domain> [--force]
   reality-lint
+  reality-lint-watch
   status
   daily
   quota
@@ -144,6 +170,12 @@ Commands:
   quota-clear
   bind-chat <chat_id>
   list-chat-candidates
+  tests
+  test-run <name>
+  lint-log
+  test-log
+  repo-log
+  repo-sync --yes
   send-daily
   print-policy
   print-client

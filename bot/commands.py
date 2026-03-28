@@ -4,29 +4,47 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from actions import reboot_server, require_confirmation, restart_xray, set_reality
+from actions import queue_repo_update, reboot_server, require_confirmation, restart_xray, set_reality
 from config import Config
 from i18n import bool_text, tr
+from maintenance import (
+    format_lint_log_text,
+    format_repo_log_text,
+    format_test_log_text,
+    format_tests_text,
+    normalize_test_id,
+    queue_network_test,
+)
 from reality import reality_test
 from reports import daily_text, quota_text, status_text
 from state import bind_chat_id, list_chat_candidates, register_chat_candidate
 
 
 def help_text(config: Config) -> str:
-    return "\n".join(
-        [
-            tr(config, "help_header"),
-            "/start",
-            "/help",
-            "/status",
-            "/daily",
-            "/quota",
-            "/reality_test <domain>",
-            "/reality_set <domain>",
-            "/restart_xray",
-            "/reboot",
-        ]
-    )
+    lines = [
+        tr(config, "help_header"),
+        "/start",
+        "/help",
+        "/status",
+        "/daily",
+        "/quota",
+        "/reality_test <domain>",
+        "/reality_set <domain>",
+        "/lint_log",
+        "/update_repo",
+        "/update_log",
+        "/restart_xray",
+        "/reboot",
+    ]
+    if str(config.enable_docker_tests).strip().lower() == "yes":
+        lines.extend(
+            [
+                "/tests",
+                "/test <name>",
+                "/test_log",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def format_chat_candidates(config: Config) -> str:
@@ -136,8 +154,40 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
                 return "\n".join([tr(config, "reality_set_failed", error=exc), "", format_reality_candidate(config, candidate)])
         except Exception as exc:
             return tr(config, "reality_set_failed", error=exc)
+    if command == "/tests":
+        return format_tests_text(config)
+    if command == "/test":
+        if len(parts) != 2:
+            return "Usage: /test <name>\nUse /tests to list supported checks."
+        test_id = normalize_test_id(parts[1])
+        confirmed, prompt = require_confirmation(
+            config,
+            chat_id,
+            f"test:{test_id}",
+            confirm_command=f"/test {test_id}",
+        )
+        if not confirmed:
+            return prompt
+        try:
+            return queue_network_test(config, test_id, chat_id)
+        except Exception as exc:
+            return f"/test failed: {exc}"
+    if command == "/lint_log":
+        return format_lint_log_text(config)
+    if command == "/update_log":
+        return format_repo_log_text(config)
+    if command == "/update_repo":
+        confirmed, prompt = require_confirmation(config, chat_id, "update_repo", confirm_command="/update_repo")
+        if not confirmed:
+            return prompt
+        try:
+            return queue_repo_update(config, chat_id)
+        except Exception as exc:
+            return f"/update_repo failed: {exc}"
+    if command == "/test_log":
+        return format_test_log_text(config)
     if command == "/restart_xray":
-        confirmed, prompt = require_confirmation(config, chat_id, "restart_xray")
+        confirmed, prompt = require_confirmation(config, chat_id, "restart_xray", confirm_command="/restart_xray")
         if not confirmed:
             return prompt
         try:
@@ -145,7 +195,7 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
         except Exception as exc:
             return tr(config, "restart_failed", error=exc)
     if command == "/reboot":
-        confirmed, prompt = require_confirmation(config, chat_id, "reboot")
+        confirmed, prompt = require_confirmation(config, chat_id, "reboot", confirm_command="/reboot")
         if not confirmed:
             return prompt
         try:

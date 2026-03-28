@@ -2,6 +2,8 @@
 
 readonly BOT_ENV_FILE="${NEFLARE_CONFIG_DIR}/bot.env"
 readonly BOT_SYSTEMD_UNIT="/etc/systemd/system/neflare-bot.service"
+readonly BOT_REALITY_LINT_SERVICE_UNIT="/etc/systemd/system/neflare-reality-lint-watch.service"
+readonly BOT_REALITY_LINT_TIMER_UNIT="/etc/systemd/system/neflare-reality-lint-watch.timer"
 
 ensure_vnstat_interface_initialized() {
   if ! vnstat --iflist 2>/dev/null | tr ' ' '\n' | grep -Fxq "${NETWORK_INTERFACE}"; then
@@ -18,6 +20,12 @@ write_bot_env_file() {
     "NEFLARE_CONFIG_FILE=${NEFLARE_CONFIG_FILE}" \
     "NEFLARE_STATE_DIR=${NEFLARE_STATE_DIR}" \
     "NEFLARE_BOT_STATE_DIR=${NEFLARE_BOT_STATE_DIR}" \
+    "ENABLE_DOCKER_TESTS=${ENABLE_DOCKER_TESTS}" \
+    "BOT_LOG_RETENTION_DAYS=${BOT_LOG_RETENTION_DAYS}" \
+    "BOT_LOG_MAX_BYTES=${BOT_LOG_MAX_BYTES}" \
+    "REPO_SYNC_URL=${REPO_SYNC_URL}" \
+    "REPO_SYNC_BRANCH=${REPO_SYNC_BRANCH}" \
+    "REPO_SYNC_DIR=${REPO_SYNC_DIR}" \
     "BOT_TOKEN=${BOT_TOKEN}" \
     "CHAT_ID=${CHAT_ID}" \
     "REPORT_TIME=${REPORT_TIME}" \
@@ -27,31 +35,38 @@ write_bot_env_file() {
     "QUOTA_RESET_DAY_UTC=${QUOTA_RESET_DAY_UTC}"
 }
 
-install_bot_unit() {
+install_bot_units() {
   snapshot_file_once "${BOT_SYSTEMD_UNIT}"
+  snapshot_file_once "${BOT_REALITY_LINT_SERVICE_UNIT}"
+  snapshot_file_once "${BOT_REALITY_LINT_TIMER_UNIT}"
   install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-bot.service" "${BOT_SYSTEMD_UNIT}" 0644 root root
+  install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-reality-lint-watch.service" "${BOT_REALITY_LINT_SERVICE_UNIT}" 0644 root root
+  install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-reality-lint-watch.timer" "${BOT_REALITY_LINT_TIMER_UNIT}" 0644 root root
   systemctl daemon-reload
 }
 
 configure_optional_bot() {
   if [[ "${ENABLE_BOT}" != "yes" ]]; then
     snapshot_file_once "${BOT_ENV_FILE}"
+    systemctl disable --now neflare-reality-lint-watch.timer >/dev/null 2>&1 || true
     systemctl disable --now neflare-bot >/dev/null 2>&1 || true
     rm -f "${BOT_ENV_FILE}"
-    info "Telegram bot not enabled; disabled the service and removed the bot environment file."
+    info "Telegram bot not enabled; disabled the bot and reality-lint timer units and removed the bot environment file."
     return 0
   fi
 
   mkdir_root_only "${NEFLARE_BOT_STATE_DIR}"
   ensure_vnstat_interface_initialized
   write_bot_env_file
-  install_bot_unit
+  install_bot_units
 
   if [[ -n "${BOT_TOKEN}" ]]; then
     systemctl enable --now neflare-bot
+    systemctl enable --now neflare-reality-lint-watch.timer
     success "Telegram bot deployed and started"
   else
+    systemctl disable --now neflare-reality-lint-watch.timer >/dev/null 2>&1 || true
     systemctl disable --now neflare-bot >/dev/null 2>&1 || true
-    warn "Telegram bot files deployed, but BOT_TOKEN is empty so the service was not started."
+    warn "Telegram bot files deployed, but BOT_TOKEN is empty so the bot service and reality-lint timer were not started."
   fi
 }

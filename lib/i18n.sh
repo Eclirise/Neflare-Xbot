@@ -68,11 +68,12 @@ i18n_text() {
     zh:prompt_enable_ipv6) format='启用 IPv6（yes/no）' ;;
     zh:prompt_xray_port) format='公网 REALITY 监听端口' ;;
     zh:warn_non443) format='使用非 443 的公网 REALITY 端口是本项目中的非默认、高风险运维选择。' ;;
-    zh:confirm_non443) format='确认继续使用非 443 的公网 REALITY 端口 %s' ;;
+    zh:confirm_non443) format='确认继续使用非 443 的公网 REALITY 监听端口 %s' ;;
     zh:prompt_reality_candidates) format='请输入至少 2 个 REALITY 伪装候选域名，使用逗号分隔（必填，不提供内置默认目标）' ;;
     zh:prompt_auto_select) format='自动选择测试后最优且可接受的候选目标（yes/no）' ;;
     zh:prompt_selected_reality_domain) format='选择 REALITY 域名（留空使用推荐值 %s）' ;;
     zh:prompt_enable_bot) format='启用 Telegram Bot 支持（yes/no）' ;;
+    zh:prompt_enable_docker_tests) format='启用一次性 Docker 网络测试（会安装并配置 Docker，yes/no）' ;;
     zh:prompt_bot_token) format='Telegram BOT_TOKEN（留空表示稍后再启用 Bot）' ;;
     zh:prompt_chat_id) format='Telegram CHAT_ID（留空表示稍后绑定）' ;;
     zh:prompt_report_time) format='日报发送时间 HH:MM' ;;
@@ -114,6 +115,7 @@ i18n_text() {
     en:prompt_auto_select) format='Auto-select the best tested acceptable candidate (yes/no)' ;;
     en:prompt_selected_reality_domain) format='Selected REALITY domain (blank for recommended %s)' ;;
     en:prompt_enable_bot) format='Enable Telegram bot support (yes/no)' ;;
+    en:prompt_enable_docker_tests) format='Enable disposable Docker-backed network tests (installs and configures Docker, yes/no)' ;;
     en:prompt_bot_token) format='Telegram BOT_TOKEN (blank to defer bot start)' ;;
     en:prompt_chat_id) format='Telegram CHAT_ID (blank to bind later)' ;;
     en:prompt_report_time) format='Daily report time HH:MM' ;;

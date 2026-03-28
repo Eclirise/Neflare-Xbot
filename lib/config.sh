@@ -20,6 +20,12 @@ set_default_config() {
   ENABLE_IPV6="$(normalize_yes_no "${ENABLE_IPV6:-yes}")"
   ALLOW_IPV6_DISABLE_FROM_IPV6="$(normalize_yes_no "${ALLOW_IPV6_DISABLE_FROM_IPV6:-no}")"
   ENABLE_BOT="$(normalize_yes_no "${ENABLE_BOT:-no}")"
+  ENABLE_DOCKER_TESTS="$(normalize_yes_no "${ENABLE_DOCKER_TESTS:-no}")"
+  BOT_LOG_RETENTION_DAYS="${BOT_LOG_RETENTION_DAYS:-14}"
+  BOT_LOG_MAX_BYTES="${BOT_LOG_MAX_BYTES:-65536}"
+  REPO_SYNC_URL="${REPO_SYNC_URL:-https://github.com/Eclirise/Neflare-Xbot.git}"
+  REPO_SYNC_BRANCH="${REPO_SYNC_BRANCH:-main}"
+  REPO_SYNC_DIR="${REPO_SYNC_DIR:-/opt/Neflare-Xbot}"
   BOT_TOKEN="${BOT_TOKEN:-}"
   CHAT_ID="${CHAT_ID:-}"
   REPORT_TIME="${REPORT_TIME:-08:00}"
@@ -185,6 +191,7 @@ prompt_install_config() {
   REALITY_CANDIDATES="$(read_prompt "${reality_prompt}" "${REALITY_CANDIDATES}" yes)"
   REALITY_AUTO_RECOMMEND="$(normalize_yes_no "$(read_prompt "$(i18n_text prompt_auto_select)" "${REALITY_AUTO_RECOMMEND:-yes}" yes)")"
 
+  ENABLE_DOCKER_TESTS="$(normalize_yes_no "$(read_prompt "$(i18n_text prompt_enable_docker_tests)" "${ENABLE_DOCKER_TESTS:-no}" yes)")"
   ENABLE_BOT="$(normalize_yes_no "$(read_prompt "$(i18n_text prompt_enable_bot)" "${ENABLE_BOT:-no}" yes)")"
   if [[ "${ENABLE_BOT}" == "yes" ]]; then
     BOT_TOKEN="$(read_prompt "$(i18n_text prompt_bot_token)" "${BOT_TOKEN}" no yes)"
@@ -207,6 +214,13 @@ validate_runtime_config() {
   validate_public_key "${ADMIN_PUBLIC_KEY}" || die "Invalid SSH public key provided for admin user."
   [[ "${ENABLE_IPV6}" == "yes" || "${ENABLE_IPV6}" == "no" ]] || die "ENABLE_IPV6 must be yes or no."
   [[ "${ENABLE_BOT}" == "yes" || "${ENABLE_BOT}" == "no" ]] || die "ENABLE_BOT must be yes or no."
+  [[ "${ENABLE_DOCKER_TESTS}" == "yes" || "${ENABLE_DOCKER_TESTS}" == "no" ]] || die "ENABLE_DOCKER_TESTS must be yes or no."
+  [[ "${BOT_LOG_RETENTION_DAYS}" =~ ^[0-9]+$ ]] || die "BOT_LOG_RETENTION_DAYS must be a non-negative integer."
+  [[ "${BOT_LOG_MAX_BYTES}" =~ ^[0-9]+$ ]] || die "BOT_LOG_MAX_BYTES must be a non-negative integer."
+  [[ -n "${REPO_SYNC_URL}" ]] || die "REPO_SYNC_URL must not be empty."
+  [[ -n "${REPO_SYNC_BRANCH}" ]] || die "REPO_SYNC_BRANCH must not be empty."
+  [[ "${REPO_SYNC_DIR}" == /* ]] || die "REPO_SYNC_DIR must be an absolute path."
+  [[ "${REPO_SYNC_DIR}" != "/" ]] || die "REPO_SYNC_DIR must not be /."
   UI_LANG="$(lang_normalize "${UI_LANG:-}")"
   UI_LANG="${UI_LANG:-en}"
   if [[ -n "${REPORT_TZ}" ]]; then
@@ -251,6 +265,12 @@ save_installed_config() {
     "ENABLE_IPV6=${ENABLE_IPV6}" \
     "ALLOW_IPV6_DISABLE_FROM_IPV6=${ALLOW_IPV6_DISABLE_FROM_IPV6}" \
     "ENABLE_BOT=${ENABLE_BOT}" \
+    "ENABLE_DOCKER_TESTS=${ENABLE_DOCKER_TESTS}" \
+    "BOT_LOG_RETENTION_DAYS=${BOT_LOG_RETENTION_DAYS}" \
+    "BOT_LOG_MAX_BYTES=${BOT_LOG_MAX_BYTES}" \
+    "REPO_SYNC_URL=${REPO_SYNC_URL}" \
+    "REPO_SYNC_BRANCH=${REPO_SYNC_BRANCH}" \
+    "REPO_SYNC_DIR=${REPO_SYNC_DIR}" \
     "BOT_TOKEN=${BOT_TOKEN}" \
     "CHAT_ID=${CHAT_ID}" \
     "REPORT_TIME=${REPORT_TIME}" \

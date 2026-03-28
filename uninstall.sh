@@ -122,8 +122,11 @@ main() {
   resolve_snapshot
 
   systemctl disable --now neflare-bot >/dev/null 2>&1 || true
+  systemctl disable --now neflare-reality-lint-watch.timer >/dev/null 2>&1 || true
   systemctl disable --now neflare-cn-ssh-geo-update.timer >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/neflare-bot.service
+  rm -f /etc/systemd/system/neflare-reality-lint-watch.service
+  rm -f /etc/systemd/system/neflare-reality-lint-watch.timer
   rm -f /etc/systemd/system/neflare-cn-ssh-geo-update.service
   rm -f /etc/systemd/system/neflare-cn-ssh-geo-update.timer
   systemctl daemon-reload

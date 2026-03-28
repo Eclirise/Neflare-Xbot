@@ -25,7 +25,7 @@ verify_firewall_state() {
   grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow REALITY port ${XRAY_LISTEN_PORT}."
   local drop_line accept_line
   drop_line="$(grep -n "SSH CN IPv4 drop" <<<"${ruleset}" | head -n 1 | cut -d: -f1)"
-  accept_line="$(grep -n "SSH\"" <<<"${ruleset}" | head -n 1 | cut -d: -f1)"
+  accept_line="$(grep -n 'SSH"' <<<"${ruleset}" | head -n 1 | cut -d: -f1)"
   if [[ -n "${drop_line}" && -n "${accept_line}" ]]; then
     (( drop_line < accept_line )) || die "nftables rule ordering allows SSH before CN geo-drop."
   fi
@@ -44,6 +44,7 @@ verify_ipv6_state() {
 verify_xray_state() {
   validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null
   systemctl is-active --quiet xray || die "xray service is not active."
+  systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
   ss -lnt | grep -Eq "[[:space:]]:${XRAY_LISTEN_PORT}[[:space:]]" || die "No listener found on TCP/${XRAY_LISTEN_PORT}."
 }
 
@@ -58,12 +59,44 @@ verify_bbr_state() {
   [[ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)" == "bbr" ]] || die "BBR is not active."
 }
 
+verify_docker_tests_state() {
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" != "yes" ]]; then
+    return 0
+  fi
+  systemctl is-active --quiet docker || die "docker service is not active."
+  systemctl is-enabled --quiet docker || die "docker service is not enabled at boot."
+  docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || die "docker daemon is not reachable."
+  python3 - /etc/docker/daemon.json <<'PY' || die "docker daemon.json is missing the required disposable-test restrictions."
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit(1)
+payload = json.loads(path.read_text(encoding="utf-8"))
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+required = {
+    "bridge": "none",
+    "iptables": False,
+    "ip6tables": False,
+}
+for key, value in required.items():
+    if payload.get(key) != value:
+        raise SystemExit(1)
+PY
+}
+
 verify_bot_state() {
   if [[ "${ENABLE_BOT}" != "yes" ]]; then
     return 0
   fi
   if [[ -n "${BOT_TOKEN}" ]]; then
     systemctl is-active --quiet neflare-bot || die "neflare-bot service is not active."
+    systemctl is-enabled --quiet neflare-bot || die "neflare-bot service is not enabled at boot."
+    systemctl is-active --quiet neflare-reality-lint-watch.timer || die "neflare-reality-lint-watch.timer is not active."
+    systemctl is-enabled --quiet neflare-reality-lint-watch.timer || die "neflare-reality-lint-watch.timer is not enabled at boot."
   fi
 }
 
@@ -75,6 +108,7 @@ run_full_verification() {
   verify_xray_state
   verify_reality_policy_state
   verify_bbr_state
+  verify_docker_tests_state
   verify_bot_state
   success "$(i18n_text verify_ok)"
 }
@@ -159,7 +193,7 @@ summary_line_done() {
 print_final_summary_lists() {
   if [[ "$(current_ui_lang)" == "zh" ]]; then
     summary_heading summary_done
-    echo "- 已显式限制仅支持 Debian ${DISTRO_VERSION_ID}"
+    echo "- 已明确限定仅支持 Debian ${DISTRO_VERSION_ID}"
     echo "- SSH 已迁移到持久化端口 ${SSH_PORT}，并关闭 root 与密码登录"
     echo "- nftables 已启用入站默认拒绝，仅放行 TCP/${XRAY_LISTEN_PORT} 和 SSH"
     if [[ "${ENABLE_IPV6}" == "yes" ]]; then
@@ -173,6 +207,9 @@ print_final_summary_lists() {
     echo "- 已启用基于 vnStat 的日报与配额统计能力"
     if [[ "${ENABLE_BOT}" == "yes" ]]; then
       echo "- 已部署可选 Telegram Bot"
+    fi
+    if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
+      echo "- 已启用一次性 Docker 网络测试运行时"
     fi
 
     summary_heading summary_not_done
@@ -194,12 +231,15 @@ print_final_summary_lists() {
     if [[ "${ENABLE_IPV6}" == "no" ]]; then
       echo "- 公网 IPv6 连通性被有意禁用"
     fi
+    if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
+      echo "- Docker 测试运行时使用 host 网络并关闭 Docker 自身防火墙管理；不适合与已有自定义 Docker 网络配置混用"
+    fi
 
     summary_heading summary_manual
     echo "- 在云厂商面板中放行 TCP/${XRAY_LISTEN_PORT} 和 TCP/${SSH_PORT}"
     echo "- 从新终端验证 ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT}:${SSH_PORT} 的 SSH 登录"
     if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-      echo "- 在 ${BOT_ENV_FILE} 中补充 BOT_TOKEN 和可选的 CHAT_ID，然后启动 neflare-bot"
+      echo "- 在 ${BOT_ENV_FILE} 中补充 BOT_TOKEN 和可选的 CHAT_ID，然后启动 neflare-bot 与 neflare-reality-lint-watch.timer"
     fi
     if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
       echo "- 不再需要迁移保护后，删除临时管理员放行规则"
@@ -223,6 +263,9 @@ print_final_summary_lists() {
   if [[ "${ENABLE_BOT}" == "yes" ]]; then
     summary_line_done "Optional Telegram bot deployed"
   fi
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
+    summary_line_done "Disposable Docker-backed network test runtime enabled"
+  fi
 
   summary_heading summary_not_done
   echo "- Provider control-plane firewall automation"
@@ -243,12 +286,15 @@ print_final_summary_lists() {
   if [[ "${ENABLE_IPV6}" == "no" ]]; then
     echo "- Public IPv6 connectivity is intentionally disabled"
   fi
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
+    echo "- The Docker test runtime uses host networking and disables Docker firewall management; do not mix it with an existing custom Docker network setup"
+  fi
 
   summary_heading summary_manual
   echo "- Apply matching provider-panel firewall rules for TCP/${XRAY_LISTEN_PORT} and TCP/${SSH_PORT}"
   echo "- Verify a fresh SSH session to ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT} on port ${SSH_PORT}"
   if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot"
+    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot and neflare-reality-lint-watch.timer"
   fi
   if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
     echo "- Remove temporary admin allow entries after you no longer need migration safety access"

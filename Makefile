@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: lint pycompile verify print-client print-policy reality-lint upgrade-xray
+.PHONY: lint pycompile verify print-client print-policy reality-lint lint-log tests test-log upgrade-xray
 
 lint:
 	@for file in $$(find . -type f -name '*.sh'); do bash -n "$$file"; done
@@ -19,6 +19,15 @@ print-policy:
 
 reality-lint:
 	@sudo /usr/local/bin/neflarectl reality-lint
+
+lint-log:
+	@sudo /usr/local/bin/neflarectl lint-log
+
+tests:
+	@sudo /usr/local/bin/neflarectl tests
+
+test-log:
+	@sudo /usr/local/bin/neflarectl test-log
 
 upgrade-xray:
 	@sudo ./install.sh --upgrade-xray

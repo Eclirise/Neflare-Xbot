@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 from dataclasses import dataclass
+from datetime import timezone, tzinfo
 from typing import Dict
 from zoneinfo import ZoneInfo
 
@@ -28,12 +29,12 @@ def load_env_file(path: str) -> Dict[str, str]:
     return data
 
 
-def load_zoneinfo(value: str) -> ZoneInfo:
+def load_zoneinfo(value: str) -> tzinfo:
     candidate = str(value or "UTC").strip() or "UTC"
     try:
         return ZoneInfo(candidate)
     except Exception:
-        return ZoneInfo("UTC")
+        return timezone.utc
 
 
 def parse_float(value: str, default: float) -> float:
@@ -55,8 +56,14 @@ class Config:
     ui_lang: str
     bot_token: str
     chat_id: str
+    enable_docker_tests: str
+    bot_log_retention_days: int
+    bot_log_max_bytes: int
+    repo_sync_url: str
+    repo_sync_branch: str
+    repo_sync_dir: str
     report_time: str
-    report_tz: ZoneInfo
+    report_tz: tzinfo
     network_interface: str
     quota_monthly_cap_gb: float
     quota_reset_day_utc: int
@@ -89,6 +96,12 @@ def load_config() -> Config:
         ui_lang=ui_lang,
         bot_token=str(merged.get("BOT_TOKEN", "")).strip(),
         chat_id=str(merged.get("CHAT_ID", "")).strip(),
+        enable_docker_tests=str(merged.get("ENABLE_DOCKER_TESTS", "no")).strip() or "no",
+        bot_log_retention_days=parse_int(str(merged.get("BOT_LOG_RETENTION_DAYS", "14") or "14"), 14),
+        bot_log_max_bytes=parse_int(str(merged.get("BOT_LOG_MAX_BYTES", "65536") or "65536"), 65536),
+        repo_sync_url=str(merged.get("REPO_SYNC_URL", "https://github.com/Eclirise/Neflare-Xbot.git")).strip(),
+        repo_sync_branch=str(merged.get("REPO_SYNC_BRANCH", "main")).strip() or "main",
+        repo_sync_dir=str(merged.get("REPO_SYNC_DIR", "/opt/Neflare-Xbot")).strip() or "/opt/Neflare-Xbot",
         report_time=str(merged.get("REPORT_TIME", "08:00")).strip() or "08:00",
         report_tz=load_zoneinfo(report_tz),
         network_interface=str(merged.get("NETWORK_INTERFACE", "")).strip(),

@@ -1,0 +1,13 @@
+[Unit]
+Description=NeFlare REALITY lint watcher timer
+
+[Timer]
+OnBootSec=20m
+OnUnitActiveSec=24h
+RandomizedDelaySec=20m
+AccuracySec=1m
+Persistent=yes
+Unit=neflare-reality-lint-watch.service
+
+[Install]
+WantedBy=timers.target

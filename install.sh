@@ -121,6 +121,7 @@ main() {
   update_cn_ssh_geo_sets
   install_cn_ssh_geo_update_units
   enable_bbr_if_supported
+  configure_optional_docker_tests_runtime
   configure_optional_bot
   save_installed_config
   run_full_verification

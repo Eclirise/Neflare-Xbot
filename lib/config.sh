@@ -26,6 +26,9 @@ set_default_config() {
   REPO_SYNC_URL="${REPO_SYNC_URL:-https://github.com/Eclirise/Neflare-Xbot.git}"
   REPO_SYNC_BRANCH="${REPO_SYNC_BRANCH:-main}"
   REPO_SYNC_DIR="${REPO_SYNC_DIR:-/opt/Neflare-Xbot}"
+  XRAY_INSTALL_SCRIPT_URL="${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
+  XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555}"
+  XRAY_INSTALL_VERIFY_SHA256="$(normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-yes}")"
   BOT_TOKEN="${BOT_TOKEN:-}"
   CHAT_ID="${CHAT_ID:-}"
   BOT_BIND_TOKEN="${BOT_BIND_TOKEN:-}"
@@ -220,12 +223,17 @@ validate_runtime_config() {
   [[ "${ENABLE_IPV6}" == "yes" || "${ENABLE_IPV6}" == "no" ]] || die "ENABLE_IPV6 must be yes or no."
   [[ "${ENABLE_BOT}" == "yes" || "${ENABLE_BOT}" == "no" ]] || die "ENABLE_BOT must be yes or no."
   [[ "${ENABLE_DOCKER_TESTS}" == "yes" || "${ENABLE_DOCKER_TESTS}" == "no" ]] || die "ENABLE_DOCKER_TESTS must be yes or no."
+  [[ "${XRAY_INSTALL_VERIFY_SHA256}" == "yes" || "${XRAY_INSTALL_VERIFY_SHA256}" == "no" ]] || die "XRAY_INSTALL_VERIFY_SHA256 must be yes or no."
   [[ "${BOT_LOG_RETENTION_DAYS}" =~ ^[0-9]+$ ]] || die "BOT_LOG_RETENTION_DAYS must be a non-negative integer."
   [[ "${BOT_LOG_MAX_BYTES}" =~ ^[0-9]+$ ]] || die "BOT_LOG_MAX_BYTES must be a non-negative integer."
   [[ -n "${REPO_SYNC_URL}" ]] || die "REPO_SYNC_URL must not be empty."
   [[ -n "${REPO_SYNC_BRANCH}" ]] || die "REPO_SYNC_BRANCH must not be empty."
   [[ "${REPO_SYNC_DIR}" == /* ]] || die "REPO_SYNC_DIR must be an absolute path."
   [[ "${REPO_SYNC_DIR}" != "/" ]] || die "REPO_SYNC_DIR must not be /."
+  [[ -n "${XRAY_INSTALL_SCRIPT_URL}" ]] || die "XRAY_INSTALL_SCRIPT_URL must not be empty."
+  if [[ "${XRAY_INSTALL_VERIFY_SHA256}" == "yes" ]]; then
+    [[ -n "${XRAY_INSTALL_SCRIPT_SHA256}" ]] || die "XRAY_INSTALL_SCRIPT_SHA256 must not be empty when XRAY_INSTALL_VERIFY_SHA256=yes."
+  fi
   UI_LANG="$(lang_normalize "${UI_LANG:-}")"
   UI_LANG="${UI_LANG:-en}"
   if [[ -n "${REPORT_TZ}" ]]; then
@@ -276,6 +284,9 @@ save_installed_config() {
     "REPO_SYNC_URL=${REPO_SYNC_URL}" \
     "REPO_SYNC_BRANCH=${REPO_SYNC_BRANCH}" \
     "REPO_SYNC_DIR=${REPO_SYNC_DIR}" \
+    "XRAY_INSTALL_SCRIPT_URL=${XRAY_INSTALL_SCRIPT_URL}" \
+    "XRAY_INSTALL_SCRIPT_SHA256=${XRAY_INSTALL_SCRIPT_SHA256}" \
+    "XRAY_INSTALL_VERIFY_SHA256=${XRAY_INSTALL_VERIFY_SHA256}" \
     "BOT_TOKEN=${BOT_TOKEN}" \
     "CHAT_ID=${CHAT_ID}" \
     "BOT_BIND_TOKEN=${BOT_BIND_TOKEN}" \

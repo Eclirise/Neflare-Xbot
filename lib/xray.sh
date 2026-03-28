@@ -3,10 +3,20 @@
 readonly XRAY_CONFIG_PATH="/usr/local/etc/xray/config.json"
 readonly XRAY_OVERRIDE_DIR="/etc/systemd/system/xray.service.d"
 readonly XRAY_OVERRIDE_PATH="${XRAY_OVERRIDE_DIR}/10-neflare-hardening.conf"
-readonly XRAY_INSTALL_SCRIPT_URL="${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
-readonly XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555}"
 XRAY_BINARY_ROLLBACK_COPY="${XRAY_BINARY_ROLLBACK_COPY:-}"
 XRAY_BINARY_TARGET_PATH="${XRAY_BINARY_TARGET_PATH:-}"
+
+xray_install_script_url() {
+  printf '%s\n' "${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
+}
+
+xray_install_script_sha256() {
+  printf '%s\n' "${XRAY_INSTALL_SCRIPT_SHA256:-7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555}"
+}
+
+xray_install_verify_sha256() {
+  normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-yes}"
+}
 
 xray_binary_path() {
   command -v xray 2>/dev/null || true
@@ -59,10 +69,17 @@ PY
 
 download_xray_install_script() {
   local destination="$1"
-  curl -fsSL "${XRAY_INSTALL_SCRIPT_URL}" -o "${destination}"
-  local actual_sha
-  actual_sha="$(sha256sum "${destination}" | awk '{print $1}')"
-  [[ "${actual_sha}" == "${XRAY_INSTALL_SCRIPT_SHA256}" ]] || die "Unexpected Xray install script checksum for ${XRAY_INSTALL_SCRIPT_URL}."
+  local script_url expected_sha actual_sha verify_mode
+  script_url="$(xray_install_script_url)"
+  verify_mode="$(xray_install_verify_sha256)"
+  curl -fsSL "${script_url}" -o "${destination}"
+  if [[ "${verify_mode}" == "yes" ]]; then
+    expected_sha="$(xray_install_script_sha256)"
+    actual_sha="$(sha256sum "${destination}" | awk '{print $1}')"
+    [[ "${actual_sha}" == "${expected_sha}" ]] || die "Unexpected Xray install script checksum for ${script_url}."
+  else
+    warn "Skipping Xray install script SHA-256 verification for ${script_url} because XRAY_INSTALL_VERIFY_SHA256=no."
+  fi
   chmod 0700 "${destination}"
 }
 
@@ -77,7 +94,7 @@ run_official_xray_install() {
   local script
   script="$(mktemp)"
   download_xray_install_script "${script}"
-  info "Running official Xray install flow from ${XRAY_INSTALL_SCRIPT_URL}"
+  info "Running official Xray install flow from $(xray_install_script_url)"
   bash "${script}" install -u root
   rm -f "${script}"
 }

@@ -110,6 +110,9 @@ Important keys:
 - `REPO_SYNC_URL`
 - `REPO_SYNC_BRANCH`
 - `REPO_SYNC_DIR`
+- `XRAY_INSTALL_SCRIPT_URL`
+- `XRAY_INSTALL_SCRIPT_SHA256`
+- `XRAY_INSTALL_VERIFY_SHA256`
 - `BOT_TOKEN`
 - `CHAT_ID`
 - `BOT_BIND_TOKEN`
@@ -192,7 +195,8 @@ sudo ./install.sh --upgrade-xray
 ```
 
 This is intentionally separate from routine repo updates.
-The upstream Xray install helper is pinned by this repo to an exact commit and SHA-256; changing that pin is an explicit repo update, not an implicit fetch of upstream `main`.
+The upstream Xray install helper is pinned by this repo to an exact commit and SHA-256 by default; changing that pin is an explicit repo update, not an implicit fetch of upstream `main`.
+If you intentionally want to keep the pinned URL but skip SHA-256 enforcement for troubleshooting, set `XRAY_INSTALL_VERIFY_SHA256=no` in your config and rerun the installer.
 
 The CN SSH geo-block updater runs weekly by systemd timer. You can force an immediate refresh with:
 

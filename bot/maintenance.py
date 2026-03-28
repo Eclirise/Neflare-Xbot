@@ -28,6 +28,11 @@ BOT_MAIN_PATH = "/usr/local/lib/neflare-bot/main.py"
 DEFAULT_LOG_ENTRY_LIMIT = 50
 
 TEST_CATALOG: Dict[str, Dict[str, str]] = {
+    "ecs_fusion": {
+        "id": "ecs_fusion",
+        "title": "spiritysdx ecs.sh",
+        "command": "bash <(wget -qO- --no-check-certificate https://gitlab.com/spiritysdx/za/-/raw/main/ecs.sh)",
+    },
     "unlock_media": {
         "id": "unlock_media",
         "title": "check.unlock.media",
@@ -618,6 +623,20 @@ def cleanup_image_if_pulled(image: str, existed_before: bool) -> str:
     return "failed to remove pulled image"
 
 
+def build_test_bootstrap_script(command: str) -> str:
+    apt_get = "apt-get -o APT::Sandbox::User=root"
+    packages = "bash ca-certificates curl dnsutils iproute2 jq procps python3 wget"
+    return "\n".join(
+        [
+            "set -Eeuo pipefail",
+            "export DEBIAN_FRONTEND=noninteractive",
+            f"{apt_get} update -y >/dev/null",
+            f"{apt_get} install -y --no-install-recommends {packages} >/dev/null",
+            command,
+        ]
+    )
+
+
 def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
     test = require_known_test(raw_test_id)
     cleanup_bot_state(config)
@@ -632,15 +651,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
     image = DEFAULT_DOCKER_IMAGE
     existed_before = image_exists(image)
     prune_test_containers()
-    shell_script = "\n".join(
-        [
-            "set -Eeuo pipefail",
-            "export DEBIAN_FRONTEND=noninteractive",
-            "apt-get update -y >/dev/null",
-            "apt-get install -y --no-install-recommends bash ca-certificates curl dnsutils iproute2 jq procps python3 >/dev/null",
-            test["command"],
-        ]
-    )
+    shell_script = build_test_bootstrap_script(test["command"])
     output = ""
     exit_code = 1
     timeout_hit = False

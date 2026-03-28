@@ -5,9 +5,9 @@ readonly NFTABLES_CN_SET_FILE="${NEFLARE_CONFIG_DIR}/nftables-cn-ssh-sets.nft"
 readonly NFTABLES_CN_METADATA_FILE="${NEFLARE_CONFIG_DIR}/nftables-cn-ssh-meta.json"
 readonly NFTABLES_CN_LAST_GOOD_FILE="${NEFLARE_CONFIG_DIR}/nftables-cn-ssh-sets.last-good.nft"
 
-ensure_empty_cn_set_file() {
-  if [[ ! -f "${NFTABLES_CN_SET_FILE}" ]]; then
-    install_text "${NFTABLES_CN_SET_FILE}" "set cn_ssh_v4 {
+empty_cn_set_content() {
+  cat <<'EOF'
+set cn_ssh_v4 {
     type ipv4_addr
     flags interval
     auto-merge
@@ -17,7 +17,35 @@ set cn_ssh_v6 {
     flags interval
     auto-merge
 }
-" 0600 root root
+EOF
+}
+
+cn_set_file_has_legacy_empty_placeholder() {
+  local path="$1"
+  [[ -f "${path}" ]] || return 1
+  local legacy_empty_lines
+  legacy_empty_lines="$(grep -Ec '^[[:space:]]*elements[[:space:]]*=[[:space:]]*\{[[:space:]]*\}[[:space:]]*$' "${path}" || true)"
+  [[ "${legacy_empty_lines}" -eq 2 ]] || return 1
+  if grep -Eq '[0-9a-fA-F:.]+/[0-9]+' "${path}"; then
+    return 1
+  fi
+  return 0
+}
+
+ensure_empty_cn_set_file() {
+  if [[ ! -f "${NFTABLES_CN_SET_FILE}" ]]; then
+    install_text "${NFTABLES_CN_SET_FILE}" "$(empty_cn_set_content)" 0600 root root
+    return 0
+  fi
+
+  if [[ ! -s "${NFTABLES_CN_SET_FILE}" ]]; then
+    install_text "${NFTABLES_CN_SET_FILE}" "$(empty_cn_set_content)" 0600 root root
+    return 0
+  fi
+
+  if cn_set_file_has_legacy_empty_placeholder "${NFTABLES_CN_SET_FILE}"; then
+    warn "Detected legacy empty CN SSH nftables set bootstrap file; rewriting it to the current syntax."
+    install_text "${NFTABLES_CN_SET_FILE}" "$(empty_cn_set_content)" 0600 root root
   fi
 }
 

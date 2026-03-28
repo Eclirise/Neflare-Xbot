@@ -65,9 +65,26 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+docker_cli_path() {
+  local candidate=""
+  candidate="$(command -v docker 2>/dev/null || true)"
+  if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+  for candidate in /usr/bin/docker /usr/local/bin/docker /bin/docker; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 docker_daemon_reachable() {
-  command_exists docker || return 1
-  docker version --format '{{.Server.Version}}' >/dev/null 2>&1
+  local docker_bin=""
+  docker_bin="$(docker_cli_path)" || return 1
+  "${docker_bin}" version --format '{{.Server.Version}}' >/dev/null 2>&1
 }
 
 wait_for_docker_daemon() {

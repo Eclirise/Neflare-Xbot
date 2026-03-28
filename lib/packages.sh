@@ -20,6 +20,32 @@ APT_PACKAGES=(
 readonly DOCKER_DAEMON_DIR="/etc/docker"
 readonly DOCKER_DAEMON_CONFIG="${DOCKER_DAEMON_DIR}/daemon.json"
 
+apt_package_has_candidate() {
+  local package="$1"
+  local candidate=""
+  candidate="$(apt-cache policy "${package}" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')"
+  [[ -n "${candidate}" && "${candidate}" != "(none)" ]]
+}
+
+ensure_optional_docker_cli_installed() {
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" != "yes" ]]; then
+    return 0
+  fi
+  if docker_cli_path >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if apt_package_has_candidate docker-cli; then
+    info "Docker daemon is present without a docker CLI; installing docker-cli."
+    apt-get install -y --no-install-recommends docker-cli
+  elif dpkg-query -W -f='${Status}' docker.io 2>/dev/null | grep -Fq 'ok installed'; then
+    warn "docker.io is installed but docker CLI is still missing; attempting a docker.io reinstall."
+    apt-get install -y --no-install-recommends --reinstall docker.io
+  fi
+
+  docker_cli_path >/dev/null 2>&1 || die "Docker CLI is missing after package installation. Install a package that provides /usr/bin/docker (for Debian 13 this is docker-cli)."
+}
+
 bootstrap_python3_if_missing() {
   if command_exists python3; then
     return 0
@@ -33,12 +59,16 @@ bootstrap_python3_if_missing() {
 install_base_packages() {
   info "Installing required Debian packages"
   export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
   local packages=("${APT_PACKAGES[@]}")
-  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]] && ! command_exists docker; then
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]] && ! command_exists dockerd; then
     packages+=(docker.io)
   fi
-  apt-get update -y
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]] && ! docker_cli_path >/dev/null 2>&1 && apt_package_has_candidate docker-cli; then
+    packages+=(docker-cli)
+  fi
   apt-get install -y --no-install-recommends "${packages[@]}"
+  ensure_optional_docker_cli_installed
   systemctl enable vnstat >/dev/null 2>&1 || true
   systemctl start vnstat >/dev/null 2>&1 || true
 }

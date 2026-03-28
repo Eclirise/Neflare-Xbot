@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,23 @@ TEST_CATALOG: Dict[str, Dict[str, str]] = {
         "command": "bash <(curl -sL IP.Check.Place)",
     },
 }
+
+
+def docker_bin() -> str:
+    candidate = shutil.which("docker")
+    if candidate:
+        return candidate
+    for raw in ("/usr/bin/docker", "/usr/local/bin/docker", "/bin/docker"):
+        if os.path.isfile(raw) and os.access(raw, os.X_OK):
+            return raw
+    raise RuntimeError(
+        "docker CLI is not installed or not reachable in PATH. "
+        "Install a package that provides the docker client binary and rerun install.sh."
+    )
+
+
+def docker_argv(*args: str) -> List[str]:
+    return [docker_bin(), *args]
 
 
 def utc_now() -> str:
@@ -152,14 +170,7 @@ def prune_log_file(config: Config, file_name: str, limit: int = DEFAULT_LOG_ENTR
 
 def prune_test_containers() -> None:
     subprocess.run(
-        [
-            "docker",
-            "container",
-            "prune",
-            "-f",
-            "--filter",
-            "label=neflare.ephemeral-test=1",
-        ],
+        docker_argv("container", "prune", "-f", "--filter", "label=neflare.ephemeral-test=1"),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=30,
@@ -501,7 +512,7 @@ def ensure_docker_runtime(config: Config) -> None:
     last_error = ""
     while True:
         proc = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
+            docker_argv("version", "--format", "{{.Server.Version}}"),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -519,7 +530,7 @@ def ensure_docker_runtime(config: Config) -> None:
 
 def image_exists(image: str) -> bool:
     proc = subprocess.run(
-        ["docker", "image", "inspect", image],
+        docker_argv("image", "inspect", image),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=30,
@@ -530,7 +541,7 @@ def image_exists(image: str) -> bool:
 
 def cleanup_container(container_name: str) -> None:
     subprocess.run(
-        ["docker", "rm", "-f", container_name],
+        docker_argv("rm", "-f", container_name),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=30,
@@ -544,7 +555,7 @@ def cleanup_image_if_pulled(image: str, existed_before: bool) -> str:
     if not image_exists(image):
         return "no pulled image remained"
     proc = subprocess.run(
-        ["docker", "image", "rm", "-f", image],
+        docker_argv("image", "rm", "-f", image),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -585,8 +596,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
     timeout_hit = False
     try:
         proc = subprocess.run(
-            [
-                "docker",
+            docker_argv(
                 "run",
                 "--name",
                 container_name,
@@ -611,7 +621,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
                 "bash",
                 "-lc",
                 shell_script,
-            ],
+            ),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

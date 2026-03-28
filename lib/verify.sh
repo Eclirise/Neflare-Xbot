@@ -63,6 +63,7 @@ verify_docker_tests_state() {
   if [[ "${ENABLE_DOCKER_TESTS:-no}" != "yes" ]]; then
     return 0
   fi
+  docker_cli_path >/dev/null 2>&1 || die "docker CLI is not installed."
   systemctl is-active --quiet docker || die "docker service is not active."
   systemctl is-enabled --quiet docker || die "docker service is not enabled at boot."
   wait_for_docker_daemon 60 || die "docker daemon is not reachable."

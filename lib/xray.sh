@@ -4,7 +4,7 @@ readonly XRAY_CONFIG_PATH="/usr/local/etc/xray/config.json"
 readonly XRAY_OVERRIDE_DIR="/etc/systemd/system/xray.service.d"
 readonly XRAY_OVERRIDE_PATH="${XRAY_OVERRIDE_DIR}/10-neflare-hardening.conf"
 readonly XRAY_INSTALL_SCRIPT_URL="${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
-readonly XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-c983ef738a6890f803ca6e612958c5f3acf7cbf07362b655c4f6e43f9a71a160}"
+readonly XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555}"
 XRAY_BINARY_ROLLBACK_COPY="${XRAY_BINARY_ROLLBACK_COPY:-}"
 XRAY_BINARY_TARGET_PATH="${XRAY_BINARY_TARGET_PATH:-}"
 
@@ -22,6 +22,39 @@ xray_version_string() {
     return 0
   fi
   xray version 2>/dev/null | head -n 1 | awk '{print $2}'
+}
+
+parse_xray_x25519_output() {
+  python3 - "${1:-}" <<'PY'
+import re
+import sys
+
+text = sys.argv[1]
+
+def capture(label: str) -> str:
+    pattern = rf"{label}\s*key\s*:?\s*([A-Za-z0-9_-]+)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+private_key = capture("private")
+public_key = capture("public")
+
+if not private_key or not public_key:
+    tokens = []
+    for token in re.findall(r"[A-Za-z0-9_-]{20,}", text):
+        if token not in tokens:
+            tokens.append(token)
+    if not private_key and len(tokens) >= 1:
+        private_key = tokens[0]
+    if not public_key and len(tokens) >= 2:
+        public_key = tokens[1]
+
+if not private_key or not public_key:
+    raise SystemExit(1)
+
+print(private_key)
+print(public_key)
+PY
 }
 
 download_xray_install_script() {
@@ -83,10 +116,14 @@ generate_xray_materials_if_missing() {
 
   if [[ -z "${XRAY_PRIVATE_KEY}" || -z "${XRAY_PUBLIC_KEY}" ]]; then
     local key_output
-    key_output="$(xray x25519)"
-    XRAY_PRIVATE_KEY="$(awk -F': ' '/Private key/ {print $2}' <<<"${key_output}")"
-    XRAY_PUBLIC_KEY="$(awk -F': ' '/Public key/ {print $2}' <<<"${key_output}")"
+    key_output="$(xray x25519 2>&1 || true)"
+    local parsed_keys=()
+    mapfile -t parsed_keys < <(parse_xray_x25519_output "${key_output}") || die "Failed to parse 'xray x25519' output: ${key_output}"
+    XRAY_PRIVATE_KEY="${parsed_keys[0]:-}"
+    XRAY_PUBLIC_KEY="${parsed_keys[1]:-}"
   fi
+
+  [[ -n "${XRAY_PRIVATE_KEY}" && -n "${XRAY_PUBLIC_KEY}" ]] || die "Failed to generate REALITY X25519 keypair."
 
   if [[ -z "${XRAY_SHORT_IDS}" ]]; then
     XRAY_SHORT_IDS="$(printf '%s,%s,%s,%s\n' \

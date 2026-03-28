@@ -111,6 +111,7 @@ main() {
   install_runtime_assets
   ensure_admin_user
   configure_ssh_hardening
+  save_installed_config
   ensure_xray_installed
   test_and_select_reality_candidate
   configure_ipv6_mode

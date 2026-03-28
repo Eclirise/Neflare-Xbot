@@ -188,22 +188,31 @@ render_template_to() {
   local source="$1"
   local destination="$2"
   shift 2
-  local tmp_render
+  local tmp_render tmp_pairs pair
   tmp_render="$(mktemp)"
-  python3 - "${source}" "${tmp_render}" "$@" <<'PY'
+  tmp_pairs="$(mktemp)"
+  : > "${tmp_pairs}"
+  for pair in "$@"; do
+    printf '%s\0' "${pair}" >> "${tmp_pairs}"
+  done
+  python3 - "${source}" "${tmp_render}" "${tmp_pairs}" <<'PY'
 import pathlib
 import sys
 
 source = pathlib.Path(sys.argv[1])
 dest = pathlib.Path(sys.argv[2])
+pairs_file = pathlib.Path(sys.argv[3])
 text = source.read_text(encoding="utf-8")
-for pair in sys.argv[3:]:
+for raw_pair in pairs_file.read_bytes().split(b"\0"):
+    if not raw_pair:
+        continue
+    pair = raw_pair.decode("utf-8")
     key, value = pair.split("=", 1)
     text = text.replace(f"__{key}__", value)
 dest.write_text(text, encoding="utf-8", newline="\n")
 PY
   install_file_atomic "${tmp_render}" "${destination}"
-  rm -f "${tmp_render}"
+  rm -f "${tmp_render}" "${tmp_pairs}"
 }
 
 install_text() {

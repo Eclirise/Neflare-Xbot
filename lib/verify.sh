@@ -45,7 +45,7 @@ verify_xray_state() {
   validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null
   systemctl is-active --quiet xray || die "xray service is not active."
   systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
-  ss -lnt | grep -Eq "[[:space:]]:${XRAY_LISTEN_PORT}[[:space:]]" || die "No listener found on TCP/${XRAY_LISTEN_PORT}."
+  ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${XRAY_LISTEN_PORT}."
 }
 
 verify_reality_policy_state() {

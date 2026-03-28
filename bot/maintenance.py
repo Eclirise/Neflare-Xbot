@@ -813,7 +813,7 @@ def build_test_command(config: Config, test: Dict[str, str]) -> str:
 
 def build_test_bootstrap_script(command: str) -> str:
     apt_get = "apt-get -o APT::Sandbox::User=root"
-    packages = "bash bc ca-certificates curl dnsutils iproute2 jq netcat-openbsd openssl procps python-is-python3 python3 uuid-runtime wget"
+    packages = "bash bc ca-certificates curl dnsutils iproute2 jq procps python3 wget"
     return "\n".join(
         [
             "set -Eeuo pipefail",
@@ -826,8 +826,16 @@ def build_test_bootstrap_script(command: str) -> str:
             "export HOME=/tmp/neflare-home",
             "export TMPDIR=/tmp",
             "mkdir -p \"$HOME\" \"$TMPDIR\"",
-            f"if ! {apt_get} update -y >/dev/null 2>&1; then echo '[bootstrap] apt-get update failed'; exit 1; fi",
-            f"if ! {apt_get} install -y --no-install-recommends {packages} >/dev/null 2>&1; then echo '[bootstrap] package install failed'; exit 1; fi",
+            'apt_log="$(mktemp)"',
+            "report_bootstrap_failure() {",
+            '  local stage="$1"',
+            '  echo "[bootstrap] ${stage} failed"',
+            '  if [ -s "$apt_log" ]; then',
+            '    tail -n 40 "$apt_log"',
+            "  fi",
+            "}",
+            f"if ! {apt_get} update -y >\"$apt_log\" 2>&1; then report_bootstrap_failure 'apt-get update'; exit 1; fi",
+            f"if ! {apt_get} install -y --no-install-recommends {packages} >\"$apt_log\" 2>&1; then report_bootstrap_failure 'package install'; exit 1; fi",
             command,
         ]
     )
@@ -871,10 +879,6 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
                 "ALL",
                 "--pids-limit",
                 "256",
-                "--memory",
-                "768m",
-                "--memory-swap",
-                "768m",
                 "--cpus",
                 "1.0",
                 "--stop-timeout",

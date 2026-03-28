@@ -51,6 +51,14 @@ TEST_CATALOG: Dict[str, Dict[str, str]] = {
 }
 
 
+def is_zh(config: Config) -> bool:
+    return str(getattr(config, "ui_lang", "en") or "en").strip().lower().startswith("zh")
+
+
+def ui_text(config: Config, zh: str, en: str) -> str:
+    return zh if is_zh(config) else en
+
+
 def docker_bin() -> str:
     candidate = shutil.which("docker")
     if candidate:
@@ -294,30 +302,56 @@ def clear_active_repo_sync(config: Config) -> None:
 def format_tests_text(config: Config) -> str:
     cleanup_bot_state(config)
     if not docker_tests_enabled(config):
-        return "\n".join(
-            [
-                "Disposable Docker-backed tests are disabled.",
-                "Set ENABLE_DOCKER_TESTS=yes and rerun install.sh to enable /test.",
-            ]
+        return ui_text(
+            config,
+            "\n".join(
+                [
+                    "网络测试",
+                    "",
+                    "• 当前未启用一次性 Docker 测试。",
+                    "• 将 ENABLE_DOCKER_TESTS=yes 后重新运行 install.sh，即可启用 /test。",
+                ]
+            ),
+            "\n".join(
+                [
+                    "Network Tests",
+                    "",
+                    "• Disposable Docker-backed tests are disabled.",
+                    "• Set ENABLE_DOCKER_TESTS=yes and rerun install.sh to enable /test.",
+                ]
+            ),
         )
 
     lines = [
-        "Available tests",
-        "Run one with /test <name>.",
-        "Each test runs in a disposable Docker container with host networking and Docker firewall management disabled.",
+        ui_text(config, "测试菜单", "Available Tests"),
+        "",
+        ui_text(config, "• 使用 /test <name> 运行一项测试。", "• Run one with /test <name>."),
+        ui_text(
+            config,
+            "• 每项测试都会在一次性 Docker 容器中执行，使用 host 网络并关闭 Docker 自身防火墙管理。",
+            "• Each test runs in a disposable Docker container with host networking and Docker firewall management disabled.",
+        ),
         "",
     ]
     active = load_active_network_test(config)
     if active:
         lines.extend(
             [
-                f"Active job: {active.get('title', active.get('test_id', 'unknown'))}",
-                f"Queued at: {active.get('started_at', 'unknown')}",
+                ui_text(
+                    config,
+                    f"• 正在运行：{active.get('title', active.get('test_id', 'unknown'))}",
+                    f"• Active job: {active.get('title', active.get('test_id', 'unknown'))}",
+                ),
+                ui_text(
+                    config,
+                    f"• 入队时间：{active.get('started_at', 'unknown')}",
+                    f"• Queued at: {active.get('started_at', 'unknown')}",
+                ),
                 "",
             ]
         )
     for item in available_network_tests():
-        lines.append(f"- {item['id']}: {item['title']}")
+        lines.append(f"• {item['id']}: {item['title']}")
     return "\n".join(lines)
 
 
@@ -345,20 +379,28 @@ def format_test_log_text(config: Config, limit: int = 10) -> str:
     cleanup_bot_state(config)
     rows = read_recent_log(config, NETWORK_TEST_LOG_FILE)[:limit]
     active = load_active_network_test(config)
-    lines = ["Recent network tests"]
+    lines = [ui_text(config, "最近网络测试", "Recent network tests")]
     if active:
         lines.append(
-            f"- running: {active.get('title', active.get('test_id', 'unknown'))}, queued_at={active.get('started_at', 'unknown')}"
+            ui_text(
+                config,
+                f"• 运行中：{active.get('title', active.get('test_id', 'unknown'))}｜入队 {active.get('started_at', 'unknown')}",
+                f"• Running: {active.get('title', active.get('test_id', 'unknown'))}, queued_at={active.get('started_at', 'unknown')}",
+            )
         )
     if not rows:
         if len(lines) == 1:
-            return "No network tests recorded yet."
+            return ui_text(config, "最近还没有网络测试记录。", "No network tests recorded yet.")
         return "\n".join(lines)
     for row in rows:
         title = row.get("title") or row.get("test_id") or "unknown"
         cleanup = row.get("cleanup_status", "unknown")
         lines.append(
-            f"- {row.get('started_at', 'unknown')}: {title}, rc={row.get('exit_code', 1)}, cleanup={cleanup}"
+            ui_text(
+                config,
+                f"• {row.get('started_at', 'unknown')}｜{title}｜退出码 {row.get('exit_code', 1)}｜清理 {cleanup}",
+                f"• {row.get('started_at', 'unknown')}: {title}, rc={row.get('exit_code', 1)}, cleanup={cleanup}",
+            )
         )
     return "\n".join(lines)
 
@@ -367,20 +409,28 @@ def format_repo_log_text(config: Config, limit: int = 10) -> str:
     cleanup_bot_state(config)
     rows = read_recent_log(config, REPO_SYNC_LOG_FILE)[:limit]
     active = load_active_repo_sync(config)
-    lines = ["Recent repo sync jobs"]
+    lines = [ui_text(config, "最近更新记录", "Recent repo sync jobs")]
     if active:
         lines.append(
-            f"- running: {active.get('branch', 'unknown')} from {active.get('repo_url', 'unknown')}, queued_at={active.get('started_at', 'unknown')}"
+            ui_text(
+                config,
+                f"• 运行中：{active.get('repo_url', 'unknown')}｜分支 {active.get('branch', 'unknown')}｜入队 {active.get('started_at', 'unknown')}",
+                f"• Running: {active.get('branch', 'unknown')} from {active.get('repo_url', 'unknown')}, queued_at={active.get('started_at', 'unknown')}",
+            )
         )
     if not rows:
         if len(lines) == 1:
-            return "No repo sync jobs recorded yet."
+            return ui_text(config, "最近还没有更新记录。", "No repo sync jobs recorded yet.")
         return "\n".join(lines)
     for row in rows:
         summary = row.get("summary") or "unknown"
         commit_after = row.get("commit_after") or row.get("commit_before") or "unknown"
         lines.append(
-            f"- {row.get('started_at', 'unknown')}: rc={row.get('exit_code', 1)}, commit={commit_after}, result={summary}"
+            ui_text(
+                config,
+                f"• {row.get('started_at', 'unknown')}｜退出码 {row.get('exit_code', 1)}｜提交 {commit_after}｜结果 {summary}",
+                f"• {row.get('started_at', 'unknown')}: rc={row.get('exit_code', 1)}, commit={commit_after}, result={summary}",
+            )
         )
     return "\n".join(lines)
 
@@ -655,14 +705,20 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
     append_log(config, NETWORK_TEST_LOG_FILE, entry)
 
     header_lines = [
-        f"Network test: {test['title']} ({test['id']})",
-        f"Started: {started_at}",
-        f"Finished: {finished_at}",
-        f"Exit code: {exit_code}",
-        f"Cleanup: removed temp container; {cleanup_status}",
+        ui_text(config, f"网络测试：{test['title']} ({test['id']})", f"Network test: {test['title']} ({test['id']})"),
+        ui_text(config, f"开始时间：{started_at}", f"Started: {started_at}"),
+        ui_text(config, f"结束时间：{finished_at}", f"Finished: {finished_at}"),
+        ui_text(config, f"退出码：{exit_code}", f"Exit code: {exit_code}"),
+        ui_text(config, f"清理结果：已移除临时容器；{cleanup_status}", f"Cleanup: removed temp container; {cleanup_status}"),
     ]
     if timeout_hit:
-        header_lines.append("Host note: the container timed out before completion.")
+        header_lines.append(
+            ui_text(
+                config,
+                "宿主机提示：容器在完成前超时退出。",
+                "Host note: the container timed out before completion.",
+            )
+        )
     header_lines.extend(["", trimmed_output])
     return {
         **entry,
@@ -675,16 +731,21 @@ def queue_network_test(config: Config, raw_test_id: str, chat_id: str) -> str:
     cleanup_bot_state(config)
     active_repo = load_active_repo_sync(config)
     if active_repo:
-        return (
-            f"Repo sync is already running from {active_repo.get('repo_url', 'unknown')} "
-            f"(queued at {active_repo.get('started_at', 'unknown')})."
+        return ui_text(
+            config,
+            f"当前已有更新任务正在运行：{active_repo.get('repo_url', 'unknown')}｜入队时间 {active_repo.get('started_at', 'unknown')}。",
+            f"Repo sync is already running from {active_repo.get('repo_url', 'unknown')} (queued at {active_repo.get('started_at', 'unknown')}).",
         )
     ensure_docker_runtime(config)
     active = load_active_network_test(config)
     if active:
         title = active.get("title") or active.get("test_id") or "unknown"
         started = active.get("started_at", "unknown")
-        return f"Another network test is already running: {title} (queued at {started})."
+        return ui_text(
+            config,
+            f"当前已有测试在运行：{title}｜入队时间 {started}。",
+            f"Another network test is already running: {title} (queued at {started}).",
+        )
 
     unit_name = f"neflare-network-test-{test['id']}-{secrets.token_hex(4)}"
     started_at = utc_now()
@@ -724,9 +785,9 @@ def queue_network_test(config: Config, raw_test_id: str, chat_id: str) -> str:
 
     return "\n".join(
         [
-            f"Queued network test: {test['title']} ({test['id']})",
-            f"Queued at: {started_at}",
-            "The result will be sent back here when the background job finishes.",
+            ui_text(config, f"已加入测试队列：{test['title']} ({test['id']})", f"Queued network test: {test['title']} ({test['id']})"),
+            ui_text(config, f"入队时间：{started_at}", f"Queued at: {started_at}"),
+            ui_text(config, "后台任务完成后，结果会自动回传到当前聊天。", "The result will be sent back here when the background job finishes."),
         ]
     )
 
@@ -743,7 +804,10 @@ def run_network_test_and_notify(config: Config, raw_test_id: str, chat_id: str) 
         return result
     except Exception as exc:
         if api:
-            api.send_text(str(chat_id).strip(), f"Network test failed: {exc}")
+            api.send_text(
+                str(chat_id).strip(),
+                ui_text(config, f"网络测试失败：{exc}", f"Network test failed: {exc}"),
+            )
         raise
     finally:
         clear_active_network_test(config)
@@ -813,21 +877,9 @@ def ensure_repo_checkout(config: Config) -> str:
         if remote != repo_url:
             raise RuntimeError(f"existing origin {remote} does not match configured REPO_SYNC_URL {repo_url}")
         run_checked(["git", "-C", str(repo_dir), "fetch", "--depth=1", "origin", branch], timeout=300)
-        checkout = subprocess.run(
-            ["git", "-C", str(repo_dir), "checkout", branch],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-        if checkout.returncode != 0:
-            run_checked(
-                ["git", "-C", str(repo_dir), "checkout", "-b", branch, "--track", f"origin/{branch}"],
-                timeout=60,
-            )
-        run_checked(["git", "-C", str(repo_dir), "pull", "--ff-only", "origin", branch], timeout=300)
+        run_checked(["git", "-C", str(repo_dir), "checkout", "-f", "-B", branch, f"origin/{branch}"], timeout=60)
+        run_checked(["git", "-C", str(repo_dir), "reset", "--hard", f"origin/{branch}"], timeout=60)
+        run_checked(["git", "-C", str(repo_dir), "clean", "-fd"], timeout=60)
     else:
         repo_dir.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         run_checked(
@@ -838,23 +890,30 @@ def ensure_repo_checkout(config: Config) -> str:
 
 
 def format_repo_sync_notification(result: Dict[str, Any]) -> str:
+    config = result["config"]
     lines = [
-        "repo sync job",
-        f"Started: {result['started_at']}",
-        f"Finished: {result['finished_at']}",
-        f"Exit code: {result['exit_code']}",
-        f"Repo: {result.get('repo_url', 'unknown')}",
-        f"Branch: {result.get('branch', 'unknown')}",
-        f"Directory: {result.get('repo_dir', 'unknown')}",
+        ui_text(config, "仓库更新任务", "Repo Sync Job"),
+        ui_text(config, f"开始时间：{result['started_at']}", f"Started: {result['started_at']}"),
+        ui_text(config, f"结束时间：{result['finished_at']}", f"Finished: {result['finished_at']}"),
+        ui_text(config, f"退出码：{result['exit_code']}", f"Exit code: {result['exit_code']}"),
+        ui_text(config, f"仓库：{result.get('repo_url', 'unknown')}", f"Repo: {result.get('repo_url', 'unknown')}"),
+        ui_text(config, f"分支：{result.get('branch', 'unknown')}", f"Branch: {result.get('branch', 'unknown')}"),
+        ui_text(config, f"目录：{result.get('repo_dir', 'unknown')}", f"Directory: {result.get('repo_dir', 'unknown')}"),
     ]
     if result.get("commit_before"):
-        lines.append(f"Commit before: {result['commit_before']}")
+        lines.append(ui_text(config, f"更新前提交：{result['commit_before']}", f"Commit before: {result['commit_before']}"))
     if result.get("commit_after"):
-        lines.append(f"Commit after: {result['commit_after']}")
+        lines.append(ui_text(config, f"更新后提交：{result['commit_after']}", f"Commit after: {result['commit_after']}"))
     if result.get("summary"):
-        lines.append(f"Summary: {result['summary']}")
+        lines.append(ui_text(config, f"摘要：{result['summary']}", f"Summary: {result['summary']}"))
     if result.get("stdout"):
-        lines.extend(["", "stdout/stderr:", trim_text(result["stdout"], limit=10000)])
+        lines.extend(
+            [
+                "",
+                ui_text(config, "输出日志：", "stdout/stderr:"),
+                trim_text(result["stdout"], limit=10000),
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -909,7 +968,11 @@ def run_repo_sync(config: Config) -> Dict[str, Any]:
         exit_code = install_proc.returncode
         commit_after = git_head(repo_dir)
         subject_after = git_subject(repo_dir)
-        summary = "updated and reapplied successfully" if exit_code == 0 else "installer rerun failed"
+        summary = (
+            ui_text(config, "已强制同步并成功重新应用配置", "force-synced and reapplied successfully")
+            if exit_code == 0
+            else ui_text(config, "仓库已同步，但 install.sh 重新执行失败", "repo synced, but install.sh rerun failed")
+        )
         if commit_after:
             summary = f"{summary}; HEAD={commit_after} {subject_after}".strip()
     except Exception as exc:
@@ -917,7 +980,7 @@ def run_repo_sync(config: Config) -> Dict[str, Any]:
         exit_code = 1
         if Path(repo_dir).is_dir():
             commit_after = git_head(repo_dir)
-        summary = "repo sync failed"
+        summary = ui_text(config, "仓库更新失败", "repo sync failed")
 
     finished_at = utc_now()
     log_entry = {
@@ -934,6 +997,7 @@ def run_repo_sync(config: Config) -> Dict[str, Any]:
     append_log(config, REPO_SYNC_LOG_FILE, log_entry)
     message_entry = {
         **log_entry,
+        "config": config,
         "stdout": trim_text("\n\n".join(chunk for chunk in stdout_chunks if chunk), limit=12000),
     }
     return {
@@ -946,15 +1010,17 @@ def queue_repo_sync(config: Config, chat_id: str) -> str:
     cleanup_bot_state(config)
     active = load_active_repo_sync(config)
     if active:
-        return (
-            f"Another repo sync job is already running from {active.get('repo_url', 'unknown')} "
-            f"(queued at {active.get('started_at', 'unknown')})."
+        return ui_text(
+            config,
+            f"当前已有更新任务在运行：{active.get('repo_url', 'unknown')}｜入队时间 {active.get('started_at', 'unknown')}。",
+            f"Another repo sync job is already running from {active.get('repo_url', 'unknown')} (queued at {active.get('started_at', 'unknown')}).",
         )
     active_test = load_active_network_test(config)
     if active_test:
-        return (
-            f"Network test {active_test.get('title', active_test.get('test_id', 'unknown'))} is still running "
-            f"(queued at {active_test.get('started_at', 'unknown')})."
+        return ui_text(
+            config,
+            f"网络测试仍在运行：{active_test.get('title', active_test.get('test_id', 'unknown'))}｜入队时间 {active_test.get('started_at', 'unknown')}。",
+            f"Network test {active_test.get('title', active_test.get('test_id', 'unknown'))} is still running (queued at {active_test.get('started_at', 'unknown')}).",
         )
 
     unit_name = f"neflare-repo-sync-{secrets.token_hex(4)}"
@@ -994,10 +1060,23 @@ def queue_repo_sync(config: Config, chat_id: str) -> str:
 
     return "\n".join(
         [
-            f"Queued repo sync from {str(config.repo_sync_url or '').strip() or 'unknown'}",
-            f"Branch: {str(config.repo_sync_branch or 'main').strip() or 'main'}",
-            f"Queued at: {started_at}",
-            "The update result will be sent back here when the background job finishes.",
+            ui_text(
+                config,
+                f"已加入强制更新队列：{str(config.repo_sync_url or '').strip() or 'unknown'}",
+                f"Queued force-sync update from {str(config.repo_sync_url or '').strip() or 'unknown'}",
+            ),
+            ui_text(
+                config,
+                f"• 分支：{str(config.repo_sync_branch or 'main').strip() or 'main'}",
+                f"• Branch: {str(config.repo_sync_branch or 'main').strip() or 'main'}",
+            ),
+            ui_text(config, f"• 入队时间：{started_at}", f"• Queued at: {started_at}"),
+            ui_text(
+                config,
+                "• 本次会强制对齐远端分支，并覆盖服务器 checkout 中的本地改动。",
+                "• This run force-aligns the checkout to the remote branch and overwrites local checkout changes.",
+            ),
+            ui_text(config, "• 后台任务完成后，结果会自动回传到当前聊天。", "• The result will be sent back here when the background job finishes."),
         ]
     )
 
@@ -1014,7 +1093,10 @@ def run_repo_sync_and_notify(config: Config, chat_id: str) -> Dict[str, Any]:
         return result
     except Exception as exc:
         if api:
-            api.send_text(str(chat_id).strip(), f"Repo sync failed: {exc}")
+            api.send_text(
+                str(chat_id).strip(),
+                ui_text(config, f"仓库更新失败：{exc}", f"Repo sync failed: {exc}"),
+            )
         raise
     finally:
         clear_active_repo_sync(config)

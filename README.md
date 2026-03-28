@@ -195,8 +195,9 @@ sudo ./install.sh --upgrade-xray
 ```
 
 This is intentionally separate from routine repo updates.
-The upstream Xray install helper is pinned by this repo to an exact commit and SHA-256 by default; changing that pin is an explicit repo update, not an implicit fetch of upstream `main`.
-If you intentionally want to keep the pinned URL but skip SHA-256 enforcement for troubleshooting, set `XRAY_INSTALL_VERIFY_SHA256=no` in your config and rerun the installer.
+The upstream Xray install helper URL is still pinned by this repo to a specific `Xray-install` commit by default, so repo-controlled installer behavior remains explicit.
+SHA-256 enforcement for that helper is now disabled by default (`XRAY_INSTALL_VERIFY_SHA256=no`), and existing installs using the old pinned default policy are migrated to `no` on the next installer run.
+If you want to re-enable checksum enforcement, set `XRAY_INSTALL_VERIFY_SHA256=yes` in your config and keep `XRAY_INSTALL_SCRIPT_SHA256` aligned with the exact helper script URL.
 
 The CN SSH geo-block updater runs weekly by systemd timer. You can force an immediate refresh with:
 
@@ -243,21 +244,29 @@ Supported commands:
 - `/start`
 - `/help`
 - `/chat_ids`
+- `/settings`
+- `/notify`
+- `/countdown`
+- `/countdown_set <YYYY-MM-DD> <HH:MM> <message>`
+- `/countdown_clear`
 - `/status`
 - `/daily`
 - `/quota`
+- `/health`
+- `/calibrate`
+- `/quota_set <used_gb> <remain_gb> [next_reset_utc]`
+- `/quota_clear`
 - `/reality_test <domain>`
 - `/reality_set <domain>`
 - `/tests`
 - `/test <name>`
-- `/lint_log`
 - `/update_repo`
 - `/update_log`
 - `/test_log`
 - `/restart_xray`
 - `/reboot`
 
-The bot also installs a `neflare-reality-lint-watch.timer` unit when bot support is enabled. It runs `reality-lint` roughly every 24 hours with a small randomized delay. The watcher records each run in bot state and only sends Telegram notifications when the tracked REALITY policy snapshot changes or the lint command fails.
+The bot no longer installs the old timer-driven `reality-lint` watcher by default. REALITY checks remain available on demand through `neflarectl reality-lint` and the Telegram REALITY commands, but the bot avoids background alerting/noisy periodic scans.
 
 Docker-backed test notes:
 
@@ -273,13 +282,14 @@ Docker-backed test notes:
 Repo sync notes:
 
 - `/update_repo` queues a background root-owned repo sync job and reruns `./install.sh --config /etc/neflare/neflare.env --non-interactive` from the configured checkout.
+- the sync now force-aligns the checkout to `origin/<REPO_SYNC_BRANCH>` and overwrites local checkout changes in the configured repo-sync directory before rerunning `install.sh`
 - The default repo-sync target is this GitHub repository on branch `main` under `/opt/Neflare-Xbot`.
 - `/update_log` shows recent repo sync attempts with timestamps, exit codes, and resulting commit ids.
 
 If `BOT_TOKEN` is empty during install, the bot files and units are deployed but the services are not started. After populating `BOT_TOKEN` and optionally `CHAT_ID`, start them with:
 
 ```bash
-sudo systemctl enable --now neflare-bot neflare-reality-lint-watch.timer
+sudo systemctl enable --now neflare-bot
 ```
 
 Automatic chat binding:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -79,6 +80,7 @@ def register_chat_candidate(config: Config, message: Dict[str, Any]) -> None:
         "username": str(chat.get("username", "")).strip(),
         "first_name": str(chat.get("first_name", "")).strip(),
         "last_name": str(chat.get("last_name", "")).strip(),
+        "last_seen_text": datetime.now(config.report_tz).strftime("%Y-%m-%d %H:%M:%S"),
         "last_seen_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     rows = [row for row in rows if str(row.get("chat_id", "")).strip() != chat_id]
@@ -134,6 +136,74 @@ def bind_chat_id(config: Config, chat_id: str) -> None:
         try_update_env_value(bot_env, "BOT_BIND_TOKEN", "")
     update_env_value(runtime_override_path(config), "CHAT_ID", chat_id)
     update_env_value(runtime_override_path(config), "BOT_BIND_TOKEN", "")
+
+
+def valid_hhmm(value: str) -> bool:
+    return bool(re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(value or "").strip()))
+
+
+def settings_path(config: Config) -> str:
+    return json_path(config, "settings.json")
+
+
+def default_runtime_settings(config: Config) -> Dict[str, Any]:
+    fallback_time = str(getattr(config, "report_time", "") or "").strip()
+    if not valid_hhmm(fallback_time):
+        fallback_time = "08:00"
+    return {
+        "daily_notify_time": fallback_time,
+    }
+
+
+def load_runtime_settings(config: Config) -> Dict[str, Any]:
+    payload = load_json(settings_path(config), default_runtime_settings(config))
+    defaults = default_runtime_settings(config)
+    changed = False
+    if not isinstance(payload, dict):
+        payload = dict(defaults)
+        changed = True
+    for key, value in defaults.items():
+        if key not in payload:
+            payload[key] = value
+            changed = True
+    if not valid_hhmm(str(payload.get("daily_notify_time", ""))):
+        payload["daily_notify_time"] = defaults["daily_notify_time"]
+        changed = True
+    if changed:
+        save_json(settings_path(config), payload)
+    return payload
+
+
+def save_runtime_settings(config: Config, payload: Dict[str, Any]) -> Dict[str, Any]:
+    defaults = default_runtime_settings(config)
+    merged = dict(defaults)
+    merged.update(payload or {})
+    if not valid_hhmm(str(merged.get("daily_notify_time", ""))):
+        merged["daily_notify_time"] = defaults["daily_notify_time"]
+    save_json(settings_path(config), merged)
+    return merged
+
+
+def countdown_path(config: Config) -> str:
+    return json_path(config, "countdown.json")
+
+
+def load_countdown(config: Config) -> Dict[str, Any]:
+    payload = load_json(countdown_path(config), {})
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def save_countdown(config: Config, payload: Dict[str, Any]) -> Dict[str, Any]:
+    save_json(countdown_path(config), payload)
+    return payload
+
+
+def clear_countdown(config: Config) -> None:
+    path = countdown_path(config)
+    if os.path.isfile(path):
+        os.remove(path)
 
 
 def confirmations_path(config: Config) -> str:

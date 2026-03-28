@@ -96,8 +96,9 @@ verify_bot_state() {
   if [[ -n "${BOT_TOKEN}" ]]; then
     systemctl is-active --quiet neflare-bot || die "neflare-bot service is not active."
     systemctl is-enabled --quiet neflare-bot || die "neflare-bot service is not enabled at boot."
-    systemctl is-active --quiet neflare-reality-lint-watch.timer || die "neflare-reality-lint-watch.timer is not active."
-    systemctl is-enabled --quiet neflare-reality-lint-watch.timer || die "neflare-reality-lint-watch.timer is not enabled at boot."
+  fi
+  if systemctl is-active --quiet neflare-reality-lint-watch.timer; then
+    die "neflare-reality-lint-watch.timer should not be active."
   fi
 }
 
@@ -242,7 +243,7 @@ print_final_summary_lists() {
     echo "- 在云厂商面板中放行 TCP/${XRAY_LISTEN_PORT} 和 TCP/${SSH_PORT}"
     echo "- 从新终端验证 ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT}:${SSH_PORT} 的 SSH 登录"
     if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-      echo "- 在 ${BOT_ENV_FILE} 中补充 BOT_TOKEN 和可选的 CHAT_ID，然后启动 neflare-bot 与 neflare-reality-lint-watch.timer"
+      echo "- 在 ${BOT_ENV_FILE} 中补充 BOT_TOKEN 和可选的 CHAT_ID，然后启动 neflare-bot"
     fi
     if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
       echo "- 不再需要迁移保护后，删除临时管理员放行规则"
@@ -297,7 +298,7 @@ print_final_summary_lists() {
   echo "- Apply matching provider-panel firewall rules for TCP/${XRAY_LISTEN_PORT} and TCP/${SSH_PORT}"
   echo "- Verify a fresh SSH session to ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT} on port ${SSH_PORT}"
   if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot and neflare-reality-lint-watch.timer"
+    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot"
   fi
   if [[ "${ENABLE_BOT}" == "yes" && -n "${BOT_TOKEN}" && -z "${CHAT_ID}" ]]; then
     echo "- Send /start to the bot to view candidate chat ids, then send /claim ${BOT_BIND_TOKEN} from your private Telegram chat to bind the sole controller"

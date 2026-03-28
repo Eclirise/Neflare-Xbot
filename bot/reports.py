@@ -10,8 +10,17 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Tuple
 
 from config import Config
-from i18n import tr
-from state import load_json, quota_path, save_json
+from state import load_countdown, load_json, quota_path, save_json
+
+DAILY_START_HOUR = 5
+
+
+def is_zh(config: Config) -> bool:
+    return str(getattr(config, "ui_lang", "en") or "en").strip().lower().startswith("zh")
+
+
+def text_by_lang(config: Config, zh: str, en: str) -> str:
+    return zh if is_zh(config) else en
 
 
 def run_text(*args: str) -> str:
@@ -28,11 +37,36 @@ def iso_utc(value: datetime) -> str:
 
 
 def parse_utc(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
 def bytes_to_gb(value: float) -> float:
-    return round(value / (1024.0 ** 3), 3)
+    return round(value / 1_000_000_000.0, 3)
+
+
+def fmt_gb(value: float) -> str:
+    return f"{value:.3f} GB"
+
+
+def fmt_days(config: Config, value: float) -> str:
+    if is_zh(config):
+        return f"{value:.3f} 天"
+    return f"{value:.3f} days"
+
+
+def format_dt_local(config: Config, value: datetime) -> str:
+    return value.astimezone(config.report_tz).strftime("%m-%d %H:%M")
+
+
+def format_dt_local_full(config: Config, value: datetime) -> str:
+    return value.astimezone(config.report_tz).strftime("%Y-%m-%d %H:%M")
+
+
+def report_tz_label(config: Config) -> str:
+    key = str(getattr(config.report_tz, "key", "") or config.report_tz)
+    if key == "Asia/Shanghai":
+        return text_by_lang(config, "北京时间", "Asia/Shanghai")
+    return key
 
 
 def add_month_same(dt: datetime) -> datetime:
@@ -71,7 +105,7 @@ def vnstat_data(config: Config) -> Dict[str, Any]:
     if not interfaces:
         raise RuntimeError("vnStat returned no interfaces")
     for iface in interfaces:
-        if iface.get("name") == config.network_interface:
+        if iface.get("name") == config.network_interface or iface.get("alias") == config.network_interface:
             return iface
     return interfaces[0]
 
@@ -111,13 +145,19 @@ def iter_fiveminute_utc(config: Config) -> Iterable[Tuple[datetime, int, int]]:
         yield dt_local.astimezone(timezone.utc), int(rec.get("rx", 0)), int(rec.get("tx", 0))
 
 
-def current_window_bounds(config: Config) -> Tuple[datetime, datetime]:
-    now = datetime.now(config.report_tz)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, now
+def current_window_bounds(config: Config, now_local: datetime | None = None) -> Tuple[datetime, datetime]:
+    now_local = now_local or datetime.now(config.report_tz)
+    start = now_local.replace(hour=DAILY_START_HOUR, minute=0, second=0, microsecond=0)
+    if now_local < start:
+        start -= timedelta(days=1)
+    return start, now_local
 
 
-def traffic_between(records: Iterable[Tuple[datetime, int, int]], start_utc: datetime, end_utc: datetime) -> Tuple[float, float]:
+def traffic_between(
+    records: Iterable[Tuple[datetime, int, int]],
+    start_utc: datetime,
+    end_utc: datetime,
+) -> Tuple[float, float]:
     rx = tx = 0
     for dt_utc, rx_bytes, tx_bytes in records:
         if start_utc <= dt_utc < end_utc:
@@ -200,21 +240,26 @@ def quota_snapshot(config: Config) -> Dict[str, Any]:
     state = load_quota_state(config)
     cap = float(state["cap_gb"])
     local_used = current_local_cycle_used_gb(config, state)
-    estimated_used = max(0.0, min(cap, local_used + float(state.get("offset_gb", 0.0)))) if cap > 0 else local_used
+    offset = float(state.get("offset_gb", 0.0))
+    estimated_used = max(0.0, local_used + offset)
+    if cap > 0:
+        estimated_used = min(cap, estimated_used)
     next_reset = parse_utc(state["next_reset_utc"])
     now_utc = datetime.now(timezone.utc)
     days_left = max((next_reset - now_utc).total_seconds() / 86400.0, 0.01)
     remain = max(cap - estimated_used, 0.0) if cap > 0 else math.inf
     avg_day = remain / days_left if cap > 0 else math.inf
+    avg_day_half = avg_day / 2.0 if cap > 0 else math.inf
     return {
         "cap_gb": cap,
         "used_gb": estimated_used,
         "remain_gb": remain,
         "days_left": days_left,
         "avg_day_gb": avg_day,
+        "avg_day_half_gb": avg_day_half,
         "cycle_start_utc": state["cycle_start_utc"],
         "next_reset_utc": state["next_reset_utc"],
-        "offset_gb": float(state.get("offset_gb", 0.0)),
+        "offset_gb": offset,
         "local_used_gb": local_used,
         "calibrated_at_utc": state.get("calibrated_at_utc"),
     }
@@ -232,7 +277,7 @@ def quota_set(config: Config, used_gb: float, remain_gb: float, next_reset_utc: 
     state["next_reset_utc"] = iso_utc(next_reset)
     state["cycle_start_utc"] = iso_utc(sub_month_same(next_reset))
     local_used = current_local_cycle_used_gb(config, state)
-    state["offset_gb"] = used_gb - local_used
+    state["offset_gb"] = round(used_gb - local_used, 3)
     state["calibrated_at_utc"] = iso_utc(datetime.now(timezone.utc))
     save_json(quota_path(config), state)
     return quota_snapshot(config)
@@ -256,87 +301,404 @@ def bbr_status() -> str:
     return run_status("sysctl", "-n", "net.ipv4.tcp_congestion_control") or "unknown"
 
 
-def status_text(config: Config) -> str:
-    today_start, today_now, today_rx, today_tx = current_window_usage(config)
-    quota = quota_snapshot(config)
-    xray_active, xray_version = xray_status()
-    remain = tr(config, "unlimited") if math.isinf(quota["remain_gb"]) else f"{quota['remain_gb']:.3f} GB"
-    cap = tr(config, "cap_disabled") if quota["cap_gb"] <= 0 else f"{quota['cap_gb']:.3f} GB"
+def health() -> Dict[str, Any]:
+    info: Dict[str, Any] = {
+        "load": "unknown",
+        "mem_total": 0.0,
+        "mem_avail": 0.0,
+        "disk_used": "unknown",
+        "disk_avail": "unknown",
+        "disk_pct": "unknown",
+        "uptime_h": 0.0,
+    }
+    try:
+        info["load"] = " ".join(open("/proc/loadavg", "r", encoding="utf-8").read().split()[:3])
+    except Exception:
+        pass
+    try:
+        meminfo: Dict[str, int] = {}
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                key, value = line.split(":", 1)
+                meminfo[key] = int(value.strip().split()[0])
+        info["mem_total"] = meminfo.get("MemTotal", 0) / 1024
+        info["mem_avail"] = meminfo.get("MemAvailable", 0) / 1024
+    except Exception:
+        pass
+    try:
+        disk = run_text("df", "-h", "/").splitlines()[-1].split()
+        info["disk_used"] = disk[2]
+        info["disk_avail"] = disk[3]
+        info["disk_pct"] = disk[4]
+    except Exception:
+        pass
+    try:
+        uptime_sec = float(open("/proc/uptime", "r", encoding="utf-8").read().split()[0])
+        info["uptime_h"] = uptime_sec / 3600.0
+    except Exception:
+        pass
+    return info
+
+
+def countdown_snapshot(config: Config) -> Dict[str, Any]:
+    payload = load_countdown(config)
+    target_raw = str(payload.get("target_utc", "")).strip()
+    message = str(payload.get("message", "")).strip()
+    if not target_raw or not message:
+        return {"active": False}
+    try:
+        target_utc = parse_utc(target_raw)
+    except Exception:
+        return {"active": False}
+    now_local = datetime.now(config.report_tz)
+    target_local = target_utc.astimezone(config.report_tz)
+    remaining_seconds = (target_local - now_local).total_seconds()
+    remaining_days = max(remaining_seconds / 86400.0, 0.0)
+    due = now_local.date() >= target_local.date()
+    return {
+        "active": True,
+        "message": message,
+        "target_utc": target_raw,
+        "target_local": target_local,
+        "target_text": format_dt_local_full(config, target_local),
+        "remaining_days": remaining_days,
+        "due": due,
+        "created_at_utc": str(payload.get("created_at_utc", "")).strip(),
+        "updated_at_utc": str(payload.get("updated_at_utc", "")).strip(),
+    }
+
+
+def countdown_due_banner(config: Config) -> str:
+    countdown = countdown_snapshot(config)
+    if not countdown.get("active") or not countdown.get("due"):
+        return ""
+    if is_zh(config):
+        return "\n".join(
+            [
+                "⏰ 倒计时提醒",
+                f"• {countdown['message']}",
+                f"• 目标时间：{countdown['target_text']}（{report_tz_label(config)}）",
+            ]
+        )
     return "\n".join(
         [
-            tr(config, "status_header"),
-            tr(config, "status_xray", active=xray_active, version=xray_version),
-            tr(config, "status_ssh", port=config.ssh_port, admin=config.admin_user),
-            tr(config, "status_reality_port", port=config.xray_listen_port),
-            tr(config, "status_reality_target", target=config.reality_selected_domain or tr(config, "reality_target_unset")),
-            tr(config, "status_ipv6", value=tr(config, "yes") if str(config.enable_ipv6).strip().lower() == "yes" else tr(config, "no")),
-            tr(config, "status_bbr", value=bbr_status()),
-            tr(
-                config,
-                "status_today",
-                start=f"{today_start:%Y-%m-%d %H:%M}",
-                end=f"{today_now:%Y-%m-%d %H:%M}",
-                rx=today_rx,
-                tx=today_tx,
-                total=(today_rx + today_tx),
-            ),
-            tr(config, "status_quota_cap", value=cap),
-            tr(config, "status_quota_used", value=quota["used_gb"]),
-            tr(config, "status_quota_remaining", value=remain),
-            tr(config, "status_next_reset", value=quota["next_reset_utc"]),
+            "⏰ Countdown Reminder",
+            f"• {countdown['message']}",
+            f"• Target time: {countdown['target_text']} ({report_tz_label(config)})",
         ]
     )
+
+
+def countdown_text(config: Config) -> str:
+    countdown = countdown_snapshot(config)
+    if not countdown.get("active"):
+        return text_by_lang(
+            config,
+            "\n".join(
+                [
+                    "倒计时",
+                    "",
+                    "• 当前：未设置",
+                    "• 设置方式：/countdown_set 2026-04-01 08:30 你的提醒内容",
+                    "• 清除方式：/countdown_clear",
+                ]
+            ),
+            "\n".join(
+                [
+                    "Countdown",
+                    "",
+                    "• Current: not configured",
+                    "• Set with: /countdown_set 2026-04-01 08:30 your reminder text",
+                    "• Clear with: /countdown_clear",
+                ]
+            ),
+        )
+    status = text_by_lang(config, "已到达", "reached") if countdown["due"] else text_by_lang(config, "进行中", "active")
+    remaining_line = (
+        f"• 剩余：{fmt_days(config, countdown['remaining_days'])}"
+        if is_zh(config)
+        else f"• Remaining: {fmt_days(config, countdown['remaining_days'])}"
+    )
+    if countdown["due"]:
+        remaining_line = f"• 状态：{status}" if is_zh(config) else f"• Status: {status}"
+    return text_by_lang(
+        config,
+        "\n".join(
+            [
+                "倒计时",
+                "",
+                f"• 内容：{countdown['message']}",
+                f"• 目标时间：{countdown['target_text']}（{report_tz_label(config)}）",
+                remaining_line,
+                "• 设置方式：/countdown_set 2026-04-01 08:30 你的提醒内容",
+                "• 清除方式：/countdown_clear",
+            ]
+        ),
+        "\n".join(
+            [
+                "Countdown",
+                "",
+                f"• Message: {countdown['message']}",
+                f"• Target time: {countdown['target_text']} ({report_tz_label(config)})",
+                remaining_line,
+                "• Set with: /countdown_set 2026-04-01 08:30 your reminder text",
+                "• Clear with: /countdown_clear",
+            ]
+        ),
+    )
+
+
+def health_text(config: Config) -> str:
+    info = health()
+    return text_by_lang(
+        config,
+        "\n".join(
+            [
+                "系统状态",
+                "",
+                f"• Load：{info['load']}",
+                f"• 内存：{info['mem_avail']:.0f} / {info['mem_total']:.0f} MB 可用",
+                f"• 磁盘：{info['disk_used']} / {info['disk_avail']}（{info['disk_pct']}）",
+                f"• 运行：{info['uptime_h']:.3f} 小时",
+            ]
+        ),
+        "\n".join(
+            [
+                "System Health",
+                "",
+                f"• Load: {info['load']}",
+                f"• Memory: {info['mem_avail']:.0f} / {info['mem_total']:.0f} MB available",
+                f"• Disk: {info['disk_used']} / {info['disk_avail']} ({info['disk_pct']})",
+                f"• Uptime: {info['uptime_h']:.3f} hours",
+            ]
+        ),
+    )
+
+
+def status_text(config: Config) -> str:
+    today_start, today_now, today_rx, today_tx = current_window_usage(config)
+    y_start, y_end, y_rx, y_tx = yesterday_window_usage(config)
+    quota = quota_snapshot(config)
+    countdown = countdown_snapshot(config)
+    xray_active, xray_version = xray_status()
+    sys = health()
+    next_reset_local = format_dt_local(config, parse_utc(quota["next_reset_utc"]))
+    lines = []
+    lines.append(text_by_lang(config, "📊 状态总览", "📊 Status"))
+    lines.append("")
+    if countdown.get("active"):
+        if is_zh(config):
+            status_label = "已到达" if countdown["due"] else f"剩余 {fmt_days(config, countdown['remaining_days'])}"
+            lines.extend(
+                [
+                    "倒计时",
+                    f"• {countdown['message']}",
+                    f"• 目标时间：{countdown['target_text']}（{report_tz_label(config)}）",
+                    f"• 状态：{status_label}",
+                    "",
+                ]
+            )
+        else:
+            status_label = "reached" if countdown["due"] else fmt_days(config, countdown["remaining_days"])
+            lines.extend(
+                [
+                    "Countdown",
+                    f"• {countdown['message']}",
+                    f"• Target time: {countdown['target_text']} ({report_tz_label(config)})",
+                    f"• Status: {status_label}",
+                    "",
+                ]
+            )
+    if is_zh(config):
+        lines.extend(
+            [
+                "概览",
+                f"• Xray：{xray_active}｜{xray_version}",
+                f"• REALITY：{config.xray_listen_port} → {config.reality_selected_domain or '未设置'}",
+                f"• 月配额剩余：{fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
+                f"• 日均总量建议：{fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else '不限'}",
+                f"• 日均单向建议：{fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else '不限'}",
+                "",
+                "本日统计窗口",
+                f"• {report_tz_label(config)}：{format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)}",
+                f"• 入站：{fmt_gb(today_rx)}",
+                f"• 出站：{fmt_gb(today_tx)}",
+                f"• 合计：{fmt_gb(today_rx + today_tx)}",
+                "",
+                "昨日统计窗口",
+                f"• {report_tz_label(config)}：{format_dt_local(config, y_start)} -> {format_dt_local(config, y_end)}",
+                f"• 入站：{fmt_gb(y_rx)}",
+                f"• 出站：{fmt_gb(y_tx)}",
+                f"• 合计：{fmt_gb(y_rx + y_tx)}",
+                "",
+                "月度配额",
+                f"• 已用：{quota['used_gb']:.3f} / {quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else f"• 已用：{quota['used_gb']:.3f} GB（不限）",
+                f"• 剩余：{fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
+                f"• 剩余天数：{fmt_days(config, quota['days_left'])}",
+                f"• 下次重置：{next_reset_local}（{report_tz_label(config)}）",
+                "",
+                "系统",
+                f"• Load：{sys['load']}",
+                f"• 内存：{sys['mem_avail']:.0f} / {sys['mem_total']:.0f} MB 可用",
+                f"• 磁盘：{sys['disk_used']} / {sys['disk_avail']}（{sys['disk_pct']}）",
+                f"• 运行：{sys['uptime_h']:.3f} 小时",
+            ]
+        )
+        return "\n".join(lines)
+    lines.extend(
+        [
+            "Overview",
+            f"• Xray: {xray_active} | {xray_version}",
+            f"• REALITY: {config.xray_listen_port} -> {config.reality_selected_domain or 'unset'}",
+            f"• Quota remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
+            f"• Suggested daily total: {fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else 'unlimited'}",
+            f"• Suggested one-way daily: {fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else 'unlimited'}",
+            "",
+            "Today",
+            f"• {report_tz_label(config)}: {format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)}",
+            f"• RX: {fmt_gb(today_rx)}",
+            f"• TX: {fmt_gb(today_tx)}",
+            f"• Total: {fmt_gb(today_rx + today_tx)}",
+            "",
+            "Yesterday",
+            f"• {report_tz_label(config)}: {format_dt_local(config, y_start)} -> {format_dt_local(config, y_end)}",
+            f"• RX: {fmt_gb(y_rx)}",
+            f"• TX: {fmt_gb(y_tx)}",
+            f"• Total: {fmt_gb(y_rx + y_tx)}",
+            "",
+            "Quota",
+            f"• Used: {quota['used_gb']:.3f} / {quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else f"• Used: {quota['used_gb']:.3f} GB (unlimited)",
+            f"• Remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
+            f"• Days left: {fmt_days(config, quota['days_left'])}",
+            f"• Next reset: {next_reset_local} ({report_tz_label(config)})",
+            "",
+            "System",
+            f"• Load: {sys['load']}",
+            f"• Memory: {sys['mem_avail']:.0f} / {sys['mem_total']:.0f} MB available",
+            f"• Disk: {sys['disk_used']} / {sys['disk_avail']} ({sys['disk_pct']})",
+            f"• Uptime: {sys['uptime_h']:.3f} hours",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def daily_text(config: Config) -> str:
     today_start, today_now, today_rx, today_tx = current_window_usage(config)
     y_start, y_end, y_rx, y_tx = yesterday_window_usage(config)
     quota = quota_snapshot(config)
-    remain = tr(config, "unlimited") if math.isinf(quota["remain_gb"]) else f"{quota['remain_gb']:.3f} GB"
-    return "\n".join(
+    banner = countdown_due_banner(config)
+    lines = []
+    if banner:
+        lines.extend([banner, ""])
+    if is_zh(config):
+        lines.extend(
+            [
+                "📅 每日视图",
+                "",
+                "概览",
+                f"• 配额状态：剩余 {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
+                f"• 日均总量建议：{fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else '不限'}",
+                f"• 日均单向建议：{fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else '不限'}",
+                "",
+                "本日统计窗口",
+                f"• {report_tz_label(config)}：{format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)}",
+                f"• 入站：{fmt_gb(today_rx)}",
+                f"• 出站：{fmt_gb(today_tx)}",
+                f"• 合计：{fmt_gb(today_rx + today_tx)}",
+                "",
+                "昨日统计窗口",
+                f"• {report_tz_label(config)}：{format_dt_local(config, y_start)} -> {format_dt_local(config, y_end)}",
+                f"• 入站：{fmt_gb(y_rx)}",
+                f"• 出站：{fmt_gb(y_tx)}",
+                f"• 合计：{fmt_gb(y_rx + y_tx)}",
+                "",
+                "月度配额",
+                f"• 已用：{quota['used_gb']:.3f} / {quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else f"• 已用：{quota['used_gb']:.3f} GB（不限）",
+                f"• 剩余：{fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
+                f"• 剩余天数：{fmt_days(config, quota['days_left'])}",
+            ]
+        )
+        return "\n".join(lines)
+    lines.extend(
         [
-            tr(config, "daily_header"),
-            tr(
-                config,
-                "daily_today",
-                start=f"{today_start:%Y-%m-%d %H:%M}",
-                end=f"{today_now:%Y-%m-%d %H:%M}",
-                rx=today_rx,
-                tx=today_tx,
-                total=(today_rx + today_tx),
-            ),
-            tr(
-                config,
-                "daily_yesterday",
-                start=f"{y_start:%Y-%m-%d %H:%M}",
-                end=f"{y_end:%Y-%m-%d %H:%M}",
-                rx=y_rx,
-                tx=y_tx,
-                total=(y_rx + y_tx),
-            ),
-            tr(config, "daily_quota_remaining", value=remain),
-            tr(config, "daily_next_reset", value=quota["next_reset_utc"]),
+            "📅 Daily View",
+            "",
+            "Overview",
+            f"• Quota remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
+            f"• Suggested daily total: {fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else 'unlimited'}",
+            f"• Suggested one-way daily: {fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else 'unlimited'}",
+            "",
+            "Today",
+            f"• {report_tz_label(config)}: {format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)}",
+            f"• RX: {fmt_gb(today_rx)}",
+            f"• TX: {fmt_gb(today_tx)}",
+            f"• Total: {fmt_gb(today_rx + today_tx)}",
+            "",
+            "Yesterday",
+            f"• {report_tz_label(config)}: {format_dt_local(config, y_start)} -> {format_dt_local(config, y_end)}",
+            f"• RX: {fmt_gb(y_rx)}",
+            f"• TX: {fmt_gb(y_tx)}",
+            f"• Total: {fmt_gb(y_rx + y_tx)}",
+            "",
+            "Quota",
+            f"• Used: {quota['used_gb']:.3f} / {quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else f"• Used: {quota['used_gb']:.3f} GB (unlimited)",
+            f"• Remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
+            f"• Days left: {fmt_days(config, quota['days_left'])}",
         ]
     )
+    return "\n".join(lines)
 
 
 def quota_text(config: Config) -> str:
     quota = quota_snapshot(config)
-    if quota["cap_gb"] <= 0:
-        cap_line = tr(config, "quota_cap_disabled")
-        remain_line = tr(config, "quota_remaining", value=tr(config, "unlimited"))
-    else:
-        cap_line = tr(config, "quota_cap", value=quota["cap_gb"])
-        remain_line = tr(config, "quota_remaining", value=f"{quota['remain_gb']:.3f} GB")
+    today_start, today_now, today_rx, today_tx = current_window_usage(config)
+    cycle_start_local = format_dt_local(config, parse_utc(quota["cycle_start_utc"]))
+    next_reset_local = format_dt_local(config, parse_utc(quota["next_reset_utc"]))
+    calibrated = text_by_lang(config, "无", "none")
+    if quota.get("calibrated_at_utc"):
+        calibrated = format_dt_local(config, parse_utc(quota["calibrated_at_utc"]))
+    if is_zh(config):
+        return "\n".join(
+            [
+                "📦 配额详情",
+                "",
+                f"• 今日窗口：{format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)}（{report_tz_label(config)}）",
+                f"• 今日入站：{fmt_gb(today_rx)}",
+                f"• 今日出站：{fmt_gb(today_tx)}",
+                f"• 今日合计：{fmt_gb(today_rx + today_tx)}",
+                "",
+                f"• 周期开始：{cycle_start_local}（{report_tz_label(config)}）",
+                f"• 下次重置：{next_reset_local}（{report_tz_label(config)}）",
+                f"• 总额：{quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else "• 总额：不限",
+                f"• 已用：{quota['used_gb']:.3f} GB",
+                f"• 剩余：{fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
+                f"• 建议总量：{fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else '不限'}",
+                f"• 建议单向：{fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else '不限'}",
+                f"• 剩余天数：{fmt_days(config, quota['days_left'])}",
+                f"• 本地原始累计：{quota['local_used_gb']:.3f} GB",
+                f"• 校准偏移：{quota['offset_gb']:+.3f} GB",
+                f"• 上次校准：{calibrated}（{report_tz_label(config)}）" if calibrated != "无" else "• 上次校准：无",
+            ]
+        )
     return "\n".join(
         [
-            tr(config, "quota_header"),
-            cap_line,
-            tr(config, "quota_local_used", value=quota["local_used_gb"]),
-            tr(config, "quota_estimated_used", value=quota["used_gb"]),
-            remain_line,
-            tr(config, "quota_offset", value=quota["offset_gb"]),
-            tr(config, "quota_cycle_start", value=quota["cycle_start_utc"]),
-            tr(config, "quota_next_reset", value=quota["next_reset_utc"]),
+            "📦 Quota Details",
+            "",
+            f"• Today window: {format_dt_local(config, today_start)} -> {format_dt_local(config, today_now)} ({report_tz_label(config)})",
+            f"• Today RX: {fmt_gb(today_rx)}",
+            f"• Today TX: {fmt_gb(today_tx)}",
+            f"• Today total: {fmt_gb(today_rx + today_tx)}",
+            "",
+            f"• Cycle start: {cycle_start_local} ({report_tz_label(config)})",
+            f"• Next reset: {next_reset_local} ({report_tz_label(config)})",
+            f"• Cap: {quota['cap_gb']:.3f} GB" if quota["cap_gb"] > 0 else "• Cap: unlimited",
+            f"• Used: {quota['used_gb']:.3f} GB",
+            f"• Remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
+            f"• Suggested daily total: {fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else 'unlimited'}",
+            f"• Suggested one-way daily: {fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else 'unlimited'}",
+            f"• Days left: {fmt_days(config, quota['days_left'])}",
+            f"• Local raw usage: {quota['local_used_gb']:.3f} GB",
+            f"• Calibration offset: {quota['offset_gb']:+.3f} GB",
+            f"• Last calibration: {calibrated} ({report_tz_label(config)})" if calibrated != "none" else "• Last calibration: none",
         ]
     )

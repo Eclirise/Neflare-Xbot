@@ -5,6 +5,7 @@ set_default_config() {
   UPGRADE_XRAY="${UPGRADE_XRAY:-0}"
   VERIFY_ONLY="${VERIFY_ONLY:-0}"
   CONFIG_INPUT_FILE="${CONFIG_INPUT_FILE:-}"
+  CONFIG_VERSION="${CONFIG_VERSION:-0}"
   if declare -F lang_normalize >/dev/null 2>&1; then
     UI_LANG="$(lang_normalize "${UI_LANG:-}")"
   else
@@ -28,7 +29,7 @@ set_default_config() {
   REPO_SYNC_DIR="${REPO_SYNC_DIR:-/opt/Neflare-Xbot}"
   XRAY_INSTALL_SCRIPT_URL="${XRAY_INSTALL_SCRIPT_URL:-https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh}"
   XRAY_INSTALL_SCRIPT_SHA256="${XRAY_INSTALL_SCRIPT_SHA256:-7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555}"
-  XRAY_INSTALL_VERIFY_SHA256="$(normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-yes}")"
+  XRAY_INSTALL_VERIFY_SHA256="$(normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-no}")"
   BOT_TOKEN="${BOT_TOKEN:-}"
   CHAT_ID="${CHAT_ID:-}"
   BOT_BIND_TOKEN="${BOT_BIND_TOKEN:-}"
@@ -53,6 +54,22 @@ set_default_config() {
   TEMP_ADMIN_ALLOW_V4="${TEMP_ADMIN_ALLOW_V4:-}"
   TEMP_ADMIN_ALLOW_V6="${TEMP_ADMIN_ALLOW_V6:-}"
   CREATED_ADMIN_USER="${CREATED_ADMIN_USER:-no}"
+}
+
+maybe_migrate_xray_install_checksum_policy() {
+  local old_default_url old_default_sha old_version
+  old_default_url="https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh"
+  old_default_sha="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+  old_version="${CONFIG_VERSION:-0}"
+  [[ "${old_version}" =~ ^[0-9]+$ ]] || old_version=0
+
+  if (( old_version < 2 )) \
+    && [[ "${XRAY_INSTALL_SCRIPT_URL}" == "${old_default_url}" ]] \
+    && [[ "${XRAY_INSTALL_SCRIPT_SHA256}" == "${old_default_sha}" ]] \
+    && [[ "${XRAY_INSTALL_VERIFY_SHA256}" == "yes" ]]; then
+    XRAY_INSTALL_VERIFY_SHA256="no"
+    info "Migrated XRAY_INSTALL_VERIFY_SHA256 from yes to no for the legacy pinned Xray installer policy."
+  fi
 }
 
 normalize_reality_candidates() {
@@ -103,6 +120,7 @@ load_installed_config_if_present() {
     info "Loading bot runtime overrides from ${NEFLARE_BOT_STATE_DIR}/runtime.env"
     source_env_file "${NEFLARE_BOT_STATE_DIR}/runtime.env"
   fi
+  maybe_migrate_xray_install_checksum_policy
 }
 
 detect_default_timezone() {
@@ -268,7 +286,7 @@ resolve_network_defaults() {
 save_installed_config() {
   mkdir_root_only "${NEFLARE_CONFIG_DIR}"
   write_env_file "${NEFLARE_CONFIG_FILE}" \
-    "CONFIG_VERSION=1" \
+    "CONFIG_VERSION=2" \
     "UI_LANG=${UI_LANG}" \
     "ADMIN_USER=${ADMIN_USER}" \
     "ADMIN_PUBLIC_KEY=${ADMIN_PUBLIC_KEY}" \

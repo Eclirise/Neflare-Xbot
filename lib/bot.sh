@@ -38,11 +38,15 @@ write_bot_env_file() {
 
 install_bot_units() {
   snapshot_file_once "${BOT_SYSTEMD_UNIT}"
-  snapshot_file_once "${BOT_REALITY_LINT_SERVICE_UNIT}"
-  snapshot_file_once "${BOT_REALITY_LINT_TIMER_UNIT}"
   install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-bot.service" "${BOT_SYSTEMD_UNIT}" 0644 root root
-  install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-reality-lint-watch.service" "${BOT_REALITY_LINT_SERVICE_UNIT}" 0644 root root
-  install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-reality-lint-watch.timer" "${BOT_REALITY_LINT_TIMER_UNIT}" 0644 root root
+  if [[ -f "${BOT_REALITY_LINT_SERVICE_UNIT}" ]]; then
+    snapshot_file_once "${BOT_REALITY_LINT_SERVICE_UNIT}"
+    rm -f "${BOT_REALITY_LINT_SERVICE_UNIT}"
+  fi
+  if [[ -f "${BOT_REALITY_LINT_TIMER_UNIT}" ]]; then
+    snapshot_file_once "${BOT_REALITY_LINT_TIMER_UNIT}"
+    rm -f "${BOT_REALITY_LINT_TIMER_UNIT}"
+  fi
   systemctl daemon-reload
 }
 
@@ -68,11 +72,11 @@ configure_optional_bot() {
     else
       systemctl enable --now neflare-bot
     fi
-    systemctl enable --now neflare-reality-lint-watch.timer
+    systemctl disable --now neflare-reality-lint-watch.timer >/dev/null 2>&1 || true
     success "Telegram bot deployed and started"
   else
     systemctl disable --now neflare-reality-lint-watch.timer >/dev/null 2>&1 || true
     systemctl disable --now neflare-bot >/dev/null 2>&1 || true
-    warn "Telegram bot files deployed, but BOT_TOKEN is empty so the bot service and reality-lint timer were not started."
+    warn "Telegram bot files deployed, but BOT_TOKEN is empty so the bot service was not started."
   fi
 }

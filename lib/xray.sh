@@ -15,7 +15,7 @@ xray_install_script_sha256() {
 }
 
 xray_install_verify_sha256() {
-  normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-yes}"
+  normalize_yes_no "${XRAY_INSTALL_VERIFY_SHA256:-no}"
 }
 
 xray_binary_path() {

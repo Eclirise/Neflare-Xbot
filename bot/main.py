@@ -21,8 +21,8 @@ from maintenance import (
     run_network_test_and_notify,
     run_reality_lint_watch,
 )
-from reports import daily_text, quota_clear, quota_set, quota_text, status_text
-from state import load_last_daily_marker, load_offset, save_last_daily_marker, save_offset
+from reports import daily_text, health_text, quota_clear, quota_set, quota_text, status_text
+from state import load_last_daily_marker, load_offset, load_runtime_settings, save_last_daily_marker, save_offset
 from telegram_api import TelegramAPI
 
 
@@ -32,7 +32,8 @@ def pending_daily_marker(config) -> str | None:
     now = datetime.now(config.report_tz)
     marker = now.strftime("%Y-%m-%d")
     try:
-        hour_text, minute_text = str(config.report_time).split(":", 1)
+        settings = load_runtime_settings(config)
+        hour_text, minute_text = str(settings["daily_notify_time"]).split(":", 1)
         scheduled = now.replace(hour=int(hour_text), minute=int(minute_text), second=0, microsecond=0)
     except Exception:
         return None
@@ -62,19 +63,27 @@ def run_poll_loop(config) -> int:
     offset = load_offset(config)
     while True:
         try:
-            daily_marker = pending_daily_marker(config)
-            if daily_marker:
-                api.send_text(config.chat_id, daily_text(config))
-                save_last_daily_marker(config, daily_marker)
+            live_config = load_config()
+            daily_marker = pending_daily_marker(live_config)
+            if daily_marker and live_config.chat_id:
+                api.send_text(live_config.chat_id, daily_text(live_config))
+                save_last_daily_marker(live_config, daily_marker)
 
             updates = api.get_updates(offset)
             for update in updates:
                 offset = int(update["update_id"]) + 1
-                save_offset(config, offset)
+                save_offset(live_config, offset)
                 message = update.get("message") or {}
-                response = handle_message(config, message)
+                current_config = load_config()
+                try:
+                    response = handle_message(current_config, message)
+                except Exception as exc:
+                    if str(getattr(current_config, "ui_lang", "en")).strip().lower().startswith("zh"):
+                        response = f"命令执行失败：{exc}"
+                    else:
+                        response = f"Command failed: {exc}"
                 if response:
-                    chat_id = str((message.get("chat") or {}).get("id", "")).strip() or config.chat_id
+                    chat_id = str((message.get("chat") or {}).get("id", "")).strip() or current_config.chat_id
                     if chat_id:
                         api.send_text(chat_id, response)
         except Exception as exc:
@@ -89,6 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send-daily", action="store_true")
     parser.add_argument("--status-text", action="store_true")
     parser.add_argument("--daily-text", action="store_true")
+    parser.add_argument("--health-text", action="store_true")
     parser.add_argument("--quota-text", action="store_true")
     parser.add_argument("--quota-set", nargs="+")
     parser.add_argument("--quota-clear", action="store_true")
@@ -124,6 +134,9 @@ def main() -> int:
         return 0
     if args.daily_text:
         print(daily_text(config))
+        return 0
+    if args.health_text:
+        print(health_text(config))
         return 0
     if args.quota_text:
         print(quota_text(config))

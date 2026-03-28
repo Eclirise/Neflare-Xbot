@@ -64,6 +64,37 @@ Fresh install directly from GitHub:
 sudo apt-get update && sudo apt-get install -y git ca-certificates && sudo rm -rf /opt/Neflare-Xbot && sudo git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot && cd /opt/Neflare-Xbot && sudo ./install.sh
 ```
 
+Fresh Debian 12/13 VPS from zero after first login or reboot:
+
+These command sets assume you are already in a `root` shell on the VPS.
+If you are not `root`, prefix the commands with `sudo`.
+
+Fresh interactive deployment:
+
+```bash
+apt-get update
+apt-get install -y git ca-certificates
+rm -rf /opt/Neflare-Xbot
+git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot
+cd /opt/Neflare-Xbot
+chmod +x install.sh
+bash install.sh
+```
+
+Fresh non-interactive deployment with a local config file:
+
+```bash
+apt-get update
+apt-get install -y git ca-certificates
+rm -rf /opt/Neflare-Xbot
+git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot
+cp /opt/Neflare-Xbot/templates/neflare.env.example /root/neflare.env
+cd /opt/Neflare-Xbot
+chmod +x install.sh
+# edit /root/neflare.env before running the next line
+bash install.sh --config /root/neflare.env --non-interactive
+```
+
 Non-interactive:
 
 ```bash

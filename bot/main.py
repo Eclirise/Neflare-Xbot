@@ -54,9 +54,10 @@ def run_poll_loop(config) -> int:
         api.call("deleteWebhook", {"drop_pending_updates": "false"})
     except Exception:
         pass
-    if config.chat_id:
+    startup_config = load_config()
+    if startup_config.chat_id:
         try:
-            api.send_text(config.chat_id, startup_text(config))
+            api.send_text(startup_config.chat_id, startup_text(startup_config))
         except Exception as exc:
             print(f"startup notify error: {exc}", file=sys.stderr)
 

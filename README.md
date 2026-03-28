@@ -237,7 +237,7 @@ Installer behavior:
 - if `BOT_TOKEN` is set and `CHAT_ID` is left blank, the bot starts unbound, records candidate chats, and the installer generates a one-time `BOT_BIND_TOKEN`
 - send `/start` to the bot to see the currently known chat ids, then send `/claim <BOT_BIND_TOKEN>` from your chosen private chat to bind that Telegram account as the sole controller
 - once `CHAT_ID` is bound, only that chat can issue bot commands
-- once bound, the bot sends a startup notice plus command list to the authorized chat and continues daily notifications at the configured `REPORT_TIME` / `REPORT_TZ`
+- once bound, every bot restart/startup sends a concise online notice to the authorized chat and continues daily notifications at the configured `REPORT_TIME` / `REPORT_TZ`
 
 Supported commands:
 
@@ -272,10 +272,11 @@ Docker-backed test notes:
 
 - `/tests` lists the supported disposable checks, but only when `ENABLE_DOCKER_TESTS=yes`.
 - `/test <name>` queues a background job, so the bot stays responsive while the test runs.
-- The job runs inside a one-shot Docker container, fetches the upstream test script at runtime, and sends the captured result back to Telegram after completion.
+- The job runs inside a one-shot Docker container, fetches the upstream test script at runtime, uses a common non-interactive shell environment plus official script arguments where available, and sends the cleaned result back to Telegram after completion.
 - When `ENABLE_DOCKER_TESTS=yes`, the installer preserves an existing Docker installation when present, otherwise installs Docker and configures it for this feature with `host` networking plus Docker firewall management disabled.
 - On Debian 13 `trixie`, the installer also installs `docker-cli` when needed because `docker.io` may provide `dockerd` without the `docker` client binary.
 - The runtime uses `--rm`, a `none` Docker log driver, explicit labeled-container pruning, and image cleanup when the base image did not already exist on the host.
+- Bot-side formatting strips common Docker pull noise, ANSI color escapes, and generic menu/prompt noise before returning long test output to Telegram.
 - Bot-managed JSON logs are pruned automatically by age and size, and only compact metadata is kept locally; the detailed test output is returned to Telegram instead of being stored in full on disk.
 - Cleanup is still best-effort for Docker resources created by this feature; it reduces leftover state substantially, but does not claim forensic zero-trace removal from daemon logs or journal history.
 

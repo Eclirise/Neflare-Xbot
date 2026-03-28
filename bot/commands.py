@@ -361,18 +361,17 @@ def claim_chat(config: Config, message: Dict[str, Any], token: str) -> str:
 
 
 def startup_text(config: Config) -> str:
-    settings = load_runtime_settings(config)
+    now_text = datetime.now(config.report_tz).strftime("%Y-%m-%d %H:%M:%S")
     return "\n".join(
         [
             text_by_lang(config, "NeFlare Bot 已上线。", "NeFlare bot is online."),
-            text_by_lang(config, f"当前绑定聊天：{config.chat_id or '未绑定'}", f"Authorized chat: {config.chat_id or 'none'}"),
             text_by_lang(
                 config,
-                f"每日报告：{settings['daily_notify_time']}（{report_tz_label(config)}）",
-                f"Daily report: {settings['daily_notify_time']} ({report_tz_label(config)})",
+                f"时间：{now_text}（{report_tz_label(config)}）",
+                f"Time: {now_text} ({report_tz_label(config)})",
             ),
-            "",
-            help_text(config),
+            text_by_lang(config, f"当前绑定聊天：{config.chat_id or '未绑定'}", f"Authorized chat: {config.chat_id or 'none'}"),
+            text_by_lang(config, "发送 /help 查看命令。", "Send /help to see commands."),
         ]
     )
 

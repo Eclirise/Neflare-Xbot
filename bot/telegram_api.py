@@ -32,8 +32,15 @@ class TelegramAPI:
         )
 
     def send_text(self, chat_id: str, text: str, max_length: int = 3500) -> None:
-        for chunk in split_text(text, max_length=max_length):
-            self.send_message(chat_id, chunk)
+        content = str(text or "").strip()
+        if not content:
+            return
+        effective_limit = max_length if len(content) <= max_length else max(max_length - 24, 512)
+        chunks = split_text(content, max_length=effective_limit)
+        total = len(chunks)
+        for index, chunk in enumerate(chunks, start=1):
+            prefix = f"[{index}/{total}]\n" if total > 1 else ""
+            self.send_message(chat_id, prefix + chunk)
 
     def get_updates(self, offset: int) -> List[Dict[str, Any]]:
         return self.call(

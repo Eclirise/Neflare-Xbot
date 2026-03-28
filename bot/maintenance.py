@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -26,6 +27,52 @@ DEFAULT_DOCKER_IMAGE = "debian:bookworm-slim"
 SYSTEMD_RUN_PATH = "/usr/bin/systemd-run"
 BOT_MAIN_PATH = "/usr/local/lib/neflare-bot/main.py"
 DEFAULT_LOG_ENTRY_LIMIT = 50
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+DOCKER_IMAGE_NOISE_RE = re.compile(
+    r"^(?:"
+    r"Unable to find image '.+' locally|"
+    r"[\w./:-]+: Pulling from .+|"
+    r"[0-9a-f]{12}:\s+(?:Pulling fs layer|Waiting|Verifying Checksum|Download complete|Pull complete)|"
+    r"Digest: sha256:[0-9a-f]+|"
+    r"Status: (?:Downloaded newer image for|Image is up to date for).+"
+    r")$",
+    re.IGNORECASE,
+)
+TEST_OUTPUT_SKIP_PATTERNS = [
+    DOCKER_IMAGE_NOISE_RE,
+    re.compile(r"^debconf: delaying package configuration", re.IGNORECASE),
+    re.compile(r"^W: chown to root:adm of file /var/log/apt/term\.log failed", re.IGNORECASE),
+    re.compile(r"^TERM environment variable not set\.?$", re.IGNORECASE),
+    re.compile(r"^Using package manager:", re.IGNORECASE),
+    re.compile(r"^Lacking necessary dependencies,", re.IGNORECASE),
+    re.compile(r"^Detected parameter\s+-y\b", re.IGNORECASE),
+    re.compile(r"^Parameter is detected, use parameter mode", re.IGNORECASE),
+    re.compile(
+        r"^(?:menu_mode|test_base_status|target_ipv4|route_location|test_cpu_type|test_disk_type|"
+        r"multidisk_status|enable_speedtest|build_text_status|main_menu_option|sub_menu_option|"
+        r"sub_of_sub_menu_option):",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^Please Select (?:Test Region|the option number)", re.IGNORECASE),
+    re.compile(r"^Please Input the Correct Number or Press ENTER", re.IGNORECASE),
+    re.compile(r"^Please enter the option number:", re.IGNORECASE),
+    re.compile(r"^Input Number\s+\[\d+\]:", re.IGNORECASE),
+    re.compile(r"^请选择检测项目", re.IGNORECASE),
+    re.compile(r"^输入数字\s*\[\d+\]:"),
+    re.compile(r"^请输入正确数字或直接按回车"),
+    re.compile(r"^请输入选项:"),
+]
+RESULT_OUTPUT_START_RE = re.compile(
+    r"^(?:"
+    r"\*\*\s+(?:Testing|正在测试)|"
+    r"\*+\s+(?:Your network|您的网络为)|"
+    r"=+\[[^]]+\]=+|"
+    r"IPv[46]:|"
+    r"Dazn:|Netflix:|Disney\+:|TikTok:|YouTube Premium:|HotStar:|FOX:"
+    r")",
+    re.IGNORECASE,
+)
 
 TEST_CATALOG: Dict[str, Dict[str, str]] = {
     "ecs_fusion": {
@@ -92,6 +139,14 @@ def trim_text(value: str, limit: int = 2000) -> str:
     return text[: limit - 20].rstrip() + "\n...[truncated]"
 
 
+def shell_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "'\"'\"'") + "'"
+
+
+def shell_join(argv: List[str]) -> str:
+    return " ".join(shell_quote(item) for item in argv)
+
+
 def stable_unique(values: List[str]) -> List[str]:
     seen = set()
     result: List[str] = []
@@ -102,6 +157,58 @@ def stable_unique(values: List[str]) -> List[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+def collapse_blank_lines(lines: List[str]) -> List[str]:
+    collapsed: List[str] = []
+    previous_blank = False
+    for line in lines:
+        if not line.strip():
+            if previous_blank:
+                continue
+            previous_blank = True
+            collapsed.append("")
+            continue
+        previous_blank = False
+        collapsed.append(line.rstrip())
+    while collapsed and not collapsed[0].strip():
+        collapsed.pop(0)
+    while collapsed and not collapsed[-1].strip():
+        collapsed.pop()
+    return collapsed
+
+
+def trim_result_preamble(lines: List[str]) -> List[str]:
+    for index, line in enumerate(lines):
+        if RESULT_OUTPUT_START_RE.search(line.strip()):
+            return lines[index:]
+    return lines
+
+
+def sanitize_network_test_output(_test_id: str, output: str) -> str:
+    text = str(output or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = ANSI_ESCAPE_RE.sub("", text)
+    text = CONTROL_CHAR_RE.sub("", text)
+
+    lines: List[str] = []
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            lines.append("")
+            continue
+        if any(pattern.search(stripped) for pattern in TEST_OUTPUT_SKIP_PATTERNS):
+            continue
+        lines.append(stripped)
+
+    cleaned_lines = collapse_blank_lines(trim_result_preamble(lines))
+    cleaned = "\n".join(cleaned_lines).strip()
+    if cleaned:
+        return cleaned
+
+    fallback_lines = collapse_blank_lines([line.strip() for line in text.split("\n") if line.strip()])
+    fallback = "\n".join(fallback_lines).strip()
+    return fallback or "(no output)"
 
 
 def append_log(config: Config, file_name: str, entry: Dict[str, Any], limit: int = 50) -> None:
@@ -623,15 +730,104 @@ def cleanup_image_if_pulled(image: str, existed_before: bool) -> str:
     return "failed to remove pulled image"
 
 
+def build_remote_script_command(
+    script_url: str,
+    argv: List[str],
+    *,
+    stdin_text: str = "",
+) -> str:
+    lines = [
+        'tmpdir="$(mktemp -d)"',
+        'cleanup_remote_script() { rm -rf "$tmpdir"; }',
+        "trap cleanup_remote_script EXIT",
+        'script="$tmpdir/test.sh"',
+        'bash_env="$tmpdir/bash_env.sh"',
+        f'curl -fsSL {shell_quote(script_url)} -o "$script"',
+        'chmod 700 "$script"',
+        'cat >"$bash_env" <<\'EOF\'',
+        "clear() { :; }",
+        "tput() { :; }",
+        "EOF",
+        'chmod 600 "$bash_env"',
+    ]
+    env_prefix = (
+        'TERM=xterm '
+        'LANG=C.UTF-8 '
+        'LC_ALL=C.UTF-8 '
+        'NO_COLOR=1 '
+        'CLICOLOR=0 '
+        'FORCE_COLOR=0 '
+        'CI=1 '
+        'BASH_ENV="$bash_env"'
+    )
+    command = f'{env_prefix} bash "$script" {shell_join(argv)}'.rstrip()
+    if stdin_text:
+        command = f"printf %b {shell_quote(stdin_text)} | {command}"
+    lines.append(command)
+    return "\n".join(lines)
+
+
+def build_test_command(config: Config, test: Dict[str, str]) -> str:
+    test_id = str(test.get("id", "")).strip()
+    if test_id == "ip_quality":
+        args = ["-y", "-n"]
+        if not is_zh(config):
+            args.append("-E")
+        return build_remote_script_command("https://IP.Check.Place", args)
+
+    if test_id == "unlock_media":
+        args = ["-E", "en"] if not is_zh(config) else []
+        return build_remote_script_command(
+            "https://check.unlock.media",
+            args,
+            stdin_text="\\n",
+        )
+
+    if test_id == "media_check_place":
+        args = ["-E"] if not is_zh(config) else []
+        return build_remote_script_command(
+            "https://Media.Check.Place",
+            args,
+            stdin_text="\\n",
+        )
+
+    if test_id == "region_restriction":
+        args = ["-E"] if not is_zh(config) else []
+        return build_remote_script_command(
+            "https://github.com/1-stream/RegionRestrictionCheck/raw/main/check.sh",
+            args,
+            stdin_text="\\n",
+        )
+
+    if test_id == "ecs_fusion":
+        args = ["-m", "4", "4", "-banup"]
+        if not is_zh(config):
+            args.insert(0, "-en")
+        return build_remote_script_command(
+            "https://gitlab.com/spiritysdx/za/-/raw/main/ecs.sh",
+            args,
+        )
+
+    return str(test.get("command", "")).strip()
+
+
 def build_test_bootstrap_script(command: str) -> str:
     apt_get = "apt-get -o APT::Sandbox::User=root"
-    packages = "bash ca-certificates curl dnsutils iproute2 jq procps python3 wget"
+    packages = "bash bc ca-certificates curl dnsutils iproute2 jq netcat-openbsd openssl procps python-is-python3 python3 uuid-runtime wget"
     return "\n".join(
         [
             "set -Eeuo pipefail",
+            'cleanup_bootstrap() { rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/* 2>/dev/null || true; }',
+            "trap cleanup_bootstrap EXIT",
             "export DEBIAN_FRONTEND=noninteractive",
-            f"{apt_get} update -y >/dev/null",
-            f"{apt_get} install -y --no-install-recommends {packages} >/dev/null",
+            "export LANG=C.UTF-8",
+            "export LC_ALL=C.UTF-8",
+            "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "export HOME=/tmp/neflare-home",
+            "export TMPDIR=/tmp",
+            "mkdir -p \"$HOME\" \"$TMPDIR\"",
+            f"if ! {apt_get} update -y >/dev/null 2>&1; then echo '[bootstrap] apt-get update failed'; exit 1; fi",
+            f"if ! {apt_get} install -y --no-install-recommends {packages} >/dev/null 2>&1; then echo '[bootstrap] package install failed'; exit 1; fi",
             command,
         ]
     )
@@ -651,7 +847,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
     image = DEFAULT_DOCKER_IMAGE
     existed_before = image_exists(image)
     prune_test_containers()
-    shell_script = build_test_bootstrap_script(test["command"])
+    shell_script = build_test_bootstrap_script(build_test_command(config, test))
     output = ""
     exit_code = 1
     timeout_hit = False
@@ -662,6 +858,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
                 "--name",
                 container_name,
                 "--rm",
+                "--init",
                 "--network",
                 "host",
                 "--label",
@@ -676,8 +873,12 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
                 "256",
                 "--memory",
                 "768m",
+                "--memory-swap",
+                "768m",
                 "--cpus",
                 "1.0",
+                "--stop-timeout",
+                "10",
                 image,
                 "bash",
                 "-lc",
@@ -703,7 +904,8 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
         cleanup_status = cleanup_image_if_pulled(image, existed_before)
 
     finished_at = utc_now()
-    trimmed_output = trim_text(output, limit=32000) or "(no output)"
+    cleaned_output = sanitize_network_test_output(test["id"], output)
+    trimmed_output = trim_text(cleaned_output, limit=18000) or "(no output)"
     entry = {
         "started_at": started_at,
         "finished_at": finished_at,
@@ -730,7 +932,7 @@ def run_network_test(config: Config, raw_test_id: str) -> Dict[str, Any]:
                 "Host note: the container timed out before completion.",
             )
         )
-    header_lines.extend(["", trimmed_output])
+    header_lines.extend(["", ui_text(config, "结果输出：", "Output:"), trimmed_output])
     return {
         **entry,
         "text": "\n".join(header_lines),

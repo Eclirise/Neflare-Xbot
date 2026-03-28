@@ -11,13 +11,11 @@ ensure_empty_cn_set_file() {
     type ipv4_addr
     flags interval
     auto-merge
-    elements = { }
 }
 set cn_ssh_v6 {
     type ipv6_addr
     flags interval
     auto-merge
-    elements = { }
 }
 " 0600 root root
   fi
@@ -31,7 +29,7 @@ render_nftables_main_file() {
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     ipv6_rule=""
     ipv6_icmp='meta nfproto ipv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert, echo-request, echo-reply, mld-listener-query, mld-listener-report, mld-listener-done } accept'
-    ipv6_geo_rule='ip6 saddr @cn_ssh_v6 tcp dport __SSH_PORT__ drop comment "SSH CN IPv6 drop"'
+    ipv6_geo_rule="ip6 saddr @cn_ssh_v6 tcp dport ${SSH_PORT} drop comment \"SSH CN IPv6 drop\""
   else
     ipv6_rule='meta nfproto ipv6 drop comment "IPv6 disabled by installer"'
     ipv6_icmp=''

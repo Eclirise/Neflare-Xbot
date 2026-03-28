@@ -34,7 +34,7 @@ install_base_packages() {
   info "Installing required Debian packages"
   export DEBIAN_FRONTEND=noninteractive
   local packages=("${APT_PACKAGES[@]}")
-  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
+  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]] && ! command_exists docker; then
     packages+=(docker.io)
   fi
   apt-get update -y
@@ -109,4 +109,5 @@ configure_optional_docker_tests_runtime() {
 
   systemctl enable docker >/dev/null 2>&1 || true
   systemctl restart docker
+  wait_for_docker_daemon 60 || die "Docker was installed/configured for disposable tests, but the daemon did not become reachable within 60 seconds."
 }

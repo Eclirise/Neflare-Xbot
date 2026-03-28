@@ -61,7 +61,12 @@ configure_optional_bot() {
   install_bot_units
 
   if [[ -n "${BOT_TOKEN}" ]]; then
-    systemctl enable --now neflare-bot
+    if systemctl is-active --quiet neflare-bot; then
+      systemctl enable neflare-bot >/dev/null 2>&1 || true
+      systemctl restart neflare-bot
+    else
+      systemctl enable --now neflare-bot
+    fi
     systemctl enable --now neflare-reality-lint-watch.timer
     success "Telegram bot deployed and started"
   else

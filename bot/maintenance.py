@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -496,20 +497,24 @@ def run_reality_lint_watch(config: Config) -> Dict[str, Any]:
 
 def ensure_docker_runtime(config: Config) -> None:
     require_docker_tests_enabled(config)
-    proc = subprocess.run(
-        ["docker", "version", "--format", "{{.Server.Version}}"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=30,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            trim_text(proc.stderr or proc.stdout, limit=500)
-            or "docker is not installed or the daemon is not reachable"
+    deadline = time.monotonic() + 60
+    last_error = ""
+    while True:
+        proc = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
         )
+        if proc.returncode == 0:
+            return
+        last_error = trim_text(proc.stderr or proc.stdout, limit=500)
+        if time.monotonic() >= deadline:
+            raise RuntimeError(last_error or "docker is not installed or the daemon is not reachable")
+        time.sleep(2)
 
 
 def image_exists(image: str) -> bool:

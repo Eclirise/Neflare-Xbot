@@ -65,6 +65,25 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+docker_daemon_reachable() {
+  command_exists docker || return 1
+  docker version --format '{{.Server.Version}}' >/dev/null 2>&1
+}
+
+wait_for_docker_daemon() {
+  local timeout_seconds="${1:-60}"
+  local deadline=$((SECONDS + timeout_seconds))
+  while true; do
+    if docker_daemon_reachable; then
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 2
+  done
+}
+
 require_commands() {
   local missing=()
   local cmd

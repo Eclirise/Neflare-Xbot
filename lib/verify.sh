@@ -65,7 +65,7 @@ verify_docker_tests_state() {
   fi
   systemctl is-active --quiet docker || die "docker service is not active."
   systemctl is-enabled --quiet docker || die "docker service is not enabled at boot."
-  docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || die "docker daemon is not reachable."
+  wait_for_docker_daemon 60 || die "docker daemon is not reachable."
   python3 - /etc/docker/daemon.json <<'PY' || die "docker daemon.json is missing the required disposable-test restrictions."
 import json
 import sys

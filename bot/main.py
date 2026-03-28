@@ -31,7 +31,12 @@ def pending_daily_marker(config) -> str | None:
         return None
     now = datetime.now(config.report_tz)
     marker = now.strftime("%Y-%m-%d")
-    if now.strftime("%H:%M") != config.report_time:
+    try:
+        hour_text, minute_text = str(config.report_time).split(":", 1)
+        scheduled = now.replace(hour=int(hour_text), minute=int(minute_text), second=0, microsecond=0)
+    except Exception:
+        return None
+    if now < scheduled:
         return None
     if load_last_daily_marker(config) == marker:
         return None

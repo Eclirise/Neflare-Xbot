@@ -30,7 +30,7 @@ def load_env_file(path: str) -> Dict[str, str]:
 
 
 def load_zoneinfo(value: str) -> tzinfo:
-    candidate = str(value or "UTC").strip() or "UTC"
+    candidate = str(value or "Asia/Shanghai").strip() or "Asia/Shanghai"
     try:
         return ZoneInfo(candidate)
     except Exception:
@@ -89,14 +89,14 @@ def load_config() -> Config:
     neflare_config = merged.get("NEFLARE_CONFIG_FILE", "/etc/neflare/neflare.env")
     merged.update(load_env_file(neflare_config))
 
-    report_tz = merged.get("REPORT_TZ", "UTC") or "UTC"
+    report_tz = merged.get("REPORT_TZ", "Asia/Shanghai") or "Asia/Shanghai"
     ui_lang = str(merged.get("UI_LANG", "en")).strip().lower() or "en"
     ui_lang = "zh" if ui_lang.startswith("zh") else "en"
     return Config(
         ui_lang=ui_lang,
         bot_token=str(merged.get("BOT_TOKEN", "")).strip(),
         chat_id=str(merged.get("CHAT_ID", "")).strip(),
-        enable_docker_tests=str(merged.get("ENABLE_DOCKER_TESTS", "no")).strip() or "no",
+        enable_docker_tests=str(merged.get("ENABLE_DOCKER_TESTS", "yes")).strip() or "yes",
         bot_log_retention_days=parse_int(str(merged.get("BOT_LOG_RETENTION_DAYS", "14") or "14"), 14),
         bot_log_max_bytes=parse_int(str(merged.get("BOT_LOG_MAX_BYTES", "65536") or "65536"), 65536),
         repo_sync_url=str(merged.get("REPO_SYNC_URL", "https://github.com/Eclirise/Neflare-Xbot.git")).strip(),
@@ -119,5 +119,5 @@ def load_config() -> Config:
         xray_uuid=str(merged.get("XRAY_UUID", "")).strip(),
         xray_short_ids=str(merged.get("XRAY_SHORT_IDS", "")).strip(),
         enable_ipv6=str(merged.get("ENABLE_IPV6", "yes")).strip() or "yes",
-        enable_bot=str(merged.get("ENABLE_BOT", "no")).strip() or "no",
+        enable_bot=str(merged.get("ENABLE_BOT", "yes")).strip() or "yes",
     )

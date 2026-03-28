@@ -13,6 +13,7 @@ from reality import reality_set
 from state import load_confirmations, save_confirmations
 
 XRAY_CONFIG_PATH = "/usr/local/etc/xray/config.json"
+SYSTEMD_RUN_PATH = "/usr/bin/systemd-run"
 
 
 def confirmation_key(chat_id: str, action: str) -> str:
@@ -57,12 +58,24 @@ def restart_xray(config: Config) -> str:
 
 
 def delayed_systemctl(action: str, delay_seconds: int = 5) -> None:
-    subprocess.Popen(
-        ["/bin/sh", "-c", f"sleep {int(delay_seconds)}; systemctl {action}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+    unit_name = f"neflare-{action}-{int(time.time())}"
+    proc = subprocess.run(
+        [
+            SYSTEMD_RUN_PATH,
+            "--unit",
+            unit_name,
+            "--collect",
+            f"--on-active={int(delay_seconds)}s",
+            "/usr/bin/systemctl",
+            action,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or f"failed to queue systemctl {action}")
 
 
 def reboot_server(config: Config) -> str:

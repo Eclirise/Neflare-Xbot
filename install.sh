@@ -90,6 +90,9 @@ main() {
   set_default_config
   load_installed_config_if_present
   load_user_config_file "${CONFIG_INPUT_FILE}"
+  if bool_is_true "${VERIFY_ONLY:-0}"; then
+    NON_INTERACTIVE=1
+  fi
   choose_ui_language
   UI_LANG_RUNTIME_OVERRIDE="${UI_LANG}"
   export UI_LANG_RUNTIME_OVERRIDE

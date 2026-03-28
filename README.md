@@ -5,9 +5,9 @@ NeFlare provisions a fresh Debian 12 or Debian 13 VPS into a production-minded X
 - hardened SSH on one persisted high port
 - nftables default-drop inbound firewall
 - mainland-China SSH geo-blocking via APNIC delegated data
-- optional Telegram bot management
+- optional Telegram bot management, enabled by default on fresh installs
 - periodic REALITY lint watch with Telegram change notifications
-- optional disposable Docker-backed network tests
+- optional disposable Docker-backed network tests, enabled by default on fresh installs
 - vnStat-backed daily traffic and quota reporting
 - explicit validation before reload/restart
 - snapshot-backed rollback for managed config changes
@@ -37,7 +37,7 @@ Not supported:
 - The first interactive installer prompt is the UI language selector (`English` or `中文`). The chosen language is persisted as `UI_LANG` and reused by installer summaries and bot status/report output.
 - REALITY candidate input is mandatory and must contain at least 2 distinct domains. The installer tests the supplied set and picks the best acceptable option unless you override it.
 - Apple/iCloud-related or tutorial-like camouflage patterns are discouraged operationally and are flagged explicitly rather than treated as good defaults.
-- Disposable Docker-backed tests are optional and disabled by default. When enabled, the installer installs Docker and configures it for host-network test runs with Docker firewall management disabled, so it should not be mixed with an existing custom Docker network setup.
+- Disposable Docker-backed tests are optional but enabled by default on fresh installs. When enabled, the installer preserves an existing Docker installation when present, otherwise installs Docker and configures it for host-network test runs with Docker firewall management disabled, so it should not be mixed with an existing custom Docker network setup.
 
 ## Repository Layout
 
@@ -137,7 +137,9 @@ REALITY policy notes:
 - `XRAY_LISTEN_PORT=443` is the default and recommended public listener.
 - If you set a non-443 public listener, also set `ALLOW_NONSTANDARD_REALITY_PORT=yes` and expect a strong warning.
 - If you intentionally want a discouraged but still technically compatible target, set `ALLOW_DISCOURAGED_REALITY_TARGET=yes` and review the policy warnings carefully.
-- `ENABLE_DOCKER_TESTS=no` is the default. Set it to `yes` only if you want the disposable `/test` runtime installed and configured.
+- `ENABLE_BOT=yes` is the default for fresh installs. Set it to `no` if you do not want Telegram bot management deployed.
+- `ENABLE_DOCKER_TESTS=yes` is the default for fresh installs. Set it to `no` if you do not want the disposable `/test` runtime installed and configured.
+- `REPORT_TZ=Asia/Shanghai` is the default for fresh installs.
 - `BOT_LOG_RETENTION_DAYS=14` is the default. Set it to `0` to disable age-based pruning of bot-managed JSON logs.
 - `BOT_LOG_MAX_BYTES=65536` is the default. Set it to `0` to disable size-based pruning of bot-managed JSON logs.
 - `REPO_SYNC_URL=https://github.com/Eclirise/Neflare-Xbot.git`, `REPO_SYNC_BRANCH=main`, and `REPO_SYNC_DIR=/opt/Neflare-Xbot` are the default repo-sync settings used by `neflarectl repo-sync` and Telegram `/update_repo`.
@@ -255,7 +257,7 @@ Docker-backed test notes:
 - `/tests` lists the supported disposable checks, but only when `ENABLE_DOCKER_TESTS=yes`.
 - `/test <name>` queues a background job, so the bot stays responsive while the test runs.
 - The job runs inside a one-shot Docker container, fetches the upstream test script at runtime, and sends the captured result back to Telegram after completion.
-- When `ENABLE_DOCKER_TESTS=yes`, the installer installs Docker and configures it for this feature with `host` networking plus Docker firewall management disabled.
+- When `ENABLE_DOCKER_TESTS=yes`, the installer preserves an existing Docker installation when present, otherwise installs Docker and configures it for this feature with `host` networking plus Docker firewall management disabled.
 - The runtime uses `--rm`, a `none` Docker log driver, explicit labeled-container pruning, and image cleanup when the base image did not already exist on the host.
 - Bot-managed JSON logs are pruned automatically by age and size, and only compact metadata is kept locally; the detailed test output is returned to Telegram instead of being stored in full on disk.
 - Cleanup is still best-effort for Docker resources created by this feature; it reduces leftover state substantially, but does not claim forensic zero-trace removal from daemon logs or journal history.

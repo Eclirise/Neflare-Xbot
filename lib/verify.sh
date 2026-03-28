@@ -122,22 +122,24 @@ print_cloud_firewall_guidance() {
 }
 
 print_client_yaml_snippet() {
+  local proxy_name="${CLIENT_PROXY_NAME:-neflare-reality}"
   cat <<EOF
-- name: "neflare-reality"
-  type: vless
-  server: ${SERVER_PUBLIC_ENDPOINT}
-  port: ${XRAY_LISTEN_PORT}
-  uuid: ${XRAY_UUID}
-  network: tcp
-  tls: true
-  udp: true
-  packet-encoding: xudp
-  flow: xtls-rprx-vision
-  servername: ${REALITY_SERVER_NAME}
-  client-fingerprint: chrome
-  reality-opts:
-    public-key: ${XRAY_PUBLIC_KEY}
-    short-id: $(first_short_id)
+proxies:
+  - name: "${proxy_name}"
+    type: vless
+    server: ${SERVER_PUBLIC_ENDPOINT}
+    port: ${XRAY_LISTEN_PORT}
+    uuid: ${XRAY_UUID}
+    network: tcp
+    tls: true
+    udp: true
+    packet-encoding: xudp
+    flow: xtls-rprx-vision
+    servername: ${REALITY_SERVER_NAME}
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: ${XRAY_PUBLIC_KEY}
+      short-id: $(first_short_id)
 EOF
 }
 

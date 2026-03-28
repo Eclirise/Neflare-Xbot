@@ -120,7 +120,6 @@ select_reality_candidate() {
 test_and_select_reality_candidate() {
   local probe_file
   probe_file="$(mktemp)"
-  trap 'rm -f "${probe_file}"' RETURN
   local candidates=()
   while IFS= read -r candidate; do
     candidates+=("${candidate}")
@@ -130,6 +129,7 @@ test_and_select_reality_candidate() {
   run_reality_probe "${probe_file}" "${candidates[@]}"
   REALITY_PROBE_RESULT_FILE="${probe_file}"
   select_reality_candidate "${probe_file}"
+  rm -f "${probe_file}"
 }
 
 reality_test_single_domain() {
@@ -141,7 +141,6 @@ lint_current_reality_policy() {
   [[ -n "${REALITY_SELECTED_DOMAIN}" ]] || die "REALITY_SELECTED_DOMAIN is not configured."
   local probe_json
   probe_json="$(mktemp)"
-  trap 'rm -f "${probe_json}"' RETURN
   reality_test_single_domain "${REALITY_SELECTED_DOMAIN}" > "${probe_json}"
   persist_selected_reality_state "${probe_json}" "${REALITY_SELECTED_DOMAIN}"
   local warning_level
@@ -152,8 +151,10 @@ lint_current_reality_policy() {
   fi
   if [[ "${warning_level}" == "hard failure" ]]; then
     jq -r '.candidates[0].policy.unresolved_warnings[]?' "${probe_json}" >&2 || true
+    rm -f "${probe_json}"
     die "Current REALITY configuration failed policy linting."
   fi
+  rm -f "${probe_json}"
 }
 
 reality_set_domain() {
@@ -163,11 +164,10 @@ reality_set_domain() {
   probe_json="$(mktemp)"
   local rendered
   rendered="$(mktemp)"
-  trap 'rm -f "${probe_json}" "${rendered}"' RETURN
   reality_test_single_domain "${domain}" > "${probe_json}"
 
   jq -e '.candidates[0].compatible == true' "${probe_json}" >/dev/null \
-    || { rm -f "${probe_json}"; die "Domain ${domain} is incompatible with the intended REALITY behavior."; }
+    || { rm -f "${probe_json}" "${rendered}"; die "Domain ${domain} is incompatible with the intended REALITY behavior."; }
 
   if [[ "${force}" != "yes" ]]; then
     require_reality_selection_allowed "${probe_json}" "${domain}"
@@ -180,6 +180,7 @@ reality_set_domain() {
   apply_xray_config "${rendered}"
   persist_selected_reality_state "${probe_json}" "${domain}"
   save_installed_config
+  rm -f "${probe_json}" "${rendered}"
   success "REALITY destination switched to ${domain}"
 }
 

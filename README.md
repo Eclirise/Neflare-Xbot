@@ -222,6 +222,14 @@ sudo neflarectl quota-clear
 
 The bot is optional and uses long polling for simplicity and reliability on small VPS deployments.
 
+Installer behavior:
+
+- if you enable bot support, the installer prompts for `BOT_TOKEN`
+- `CHAT_ID` is optional during install
+- if `BOT_TOKEN` is set and `CHAT_ID` is left blank, the bot starts unbound and the first private `/start` binds that Telegram account as the sole controller
+- once `CHAT_ID` is bound, only that chat can issue bot commands
+- daily notifications are sent to the bound `CHAT_ID` at the configured `REPORT_TIME` / `REPORT_TZ`
+
 Supported commands:
 
 - `/start`
@@ -264,7 +272,14 @@ If `BOT_TOKEN` is empty during install, the bot files and units are deployed but
 sudo systemctl enable --now neflare-bot neflare-reality-lint-watch.timer
 ```
 
-Deferred chat binding:
+Automatic chat binding:
+
+- leave `CHAT_ID` blank during install
+- start the bot service
+- open a private chat with the bot and send `/start`
+- that private chat becomes the sole authorized controller
+
+Manual override binding:
 
 ```bash
 sudo neflarectl list-chat-candidates

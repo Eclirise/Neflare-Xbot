@@ -85,19 +85,31 @@ def format_reality_candidate(config: Config, candidate: Dict[str, Any]) -> str:
     )
 
 
+def report_tz_label(config: Config) -> str:
+    return str(getattr(config.report_tz, "key", "") or config.report_tz)
+
+
 def unbound_start_text(config: Config, message: Dict[str, Any]) -> str:
     register_chat_candidate(config, message)
     chat = message.get("chat") or {}
     chat_id = str(chat.get("id", "")).strip()
+    chat_type = str(chat.get("type", "")).strip().lower()
+    if chat_type != "private":
+        return "\n".join(
+            [
+                tr(config, "unbound_private_required"),
+                tr(config, "current_chat_id", chat_id=chat_id),
+            ]
+        )
+
+    bind_chat_id(config, chat_id)
+    config.chat_id = chat_id
     return "\n".join(
         [
-            tr(config, "unbound_intro"),
-            tr(config, "current_chat_id", chat_id=chat_id),
+            tr(config, "autobind_success", chat_id=chat_id),
+            tr(config, "daily_schedule", time=config.report_time, tz=report_tz_label(config)),
             "",
-            tr(config, "on_vps_run"),
-            "  neflarectl list-chat-candidates",
-            f"  neflarectl bind-chat {chat_id}",
-            "  systemctl restart neflare-bot",
+            help_text(config),
         ]
     )
 
@@ -207,4 +219,5 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
 
 def bind_chat(config: Config, chat_id: str) -> str:
     bind_chat_id(config, chat_id)
+    config.chat_id = str(chat_id).strip()
     return tr(config, "bound_chat", chat_id=chat_id)

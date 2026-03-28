@@ -25,6 +25,10 @@ def quota_path(config: Config) -> str:
     return os.path.join(config.neflare_state_dir, "quota.json")
 
 
+def runtime_override_path(config: Config) -> str:
+    return json_path(config, "runtime.env")
+
+
 def load_json(path: str, default: Any) -> Any:
     try:
         with open(path, "r", encoding="utf-8") as handle:
@@ -113,13 +117,23 @@ def update_env_value(path: str, key: str, value: str) -> None:
     os.chmod(path, 0o600)
 
 
+def try_update_env_value(path: str, key: str, value: str) -> bool:
+    try:
+        update_env_value(path, key, value)
+        return True
+    except OSError:
+        return False
+
+
 def bind_chat_id(config: Config, chat_id: str) -> None:
-    update_env_value(config.neflare_config_file, "CHAT_ID", chat_id)
-    update_env_value(config.neflare_config_file, "BOT_BIND_TOKEN", "")
+    try_update_env_value(config.neflare_config_file, "CHAT_ID", chat_id)
+    try_update_env_value(config.neflare_config_file, "BOT_BIND_TOKEN", "")
     bot_env = os.environ.get("NEFLARE_BOT_ENV", "/etc/neflare/bot.env")
     if os.path.isfile(bot_env):
-        update_env_value(bot_env, "CHAT_ID", chat_id)
-        update_env_value(bot_env, "BOT_BIND_TOKEN", "")
+        try_update_env_value(bot_env, "CHAT_ID", chat_id)
+        try_update_env_value(bot_env, "BOT_BIND_TOKEN", "")
+    update_env_value(runtime_override_path(config), "CHAT_ID", chat_id)
+    update_env_value(runtime_override_path(config), "BOT_BIND_TOKEN", "")
 
 
 def confirmations_path(config: Config) -> str:

@@ -89,6 +89,8 @@ def load_config() -> Config:
     merged.update(load_env_file(bot_env))
     neflare_config = merged.get("NEFLARE_CONFIG_FILE", "/etc/neflare/neflare.env")
     merged.update(load_env_file(neflare_config))
+    bot_state_dir = str(merged.get("NEFLARE_BOT_STATE_DIR", "/var/lib/neflare-bot")).strip() or "/var/lib/neflare-bot"
+    merged.update(load_env_file(os.path.join(bot_state_dir, "runtime.env")))
 
     report_tz = merged.get("REPORT_TZ", "Asia/Shanghai") or "Asia/Shanghai"
     ui_lang = str(merged.get("UI_LANG", "en")).strip().lower() or "en"
@@ -111,7 +113,7 @@ def load_config() -> Config:
         quota_reset_day_utc=parse_int(str(merged.get("QUOTA_RESET_DAY_UTC", "1") or "1"), 1),
         neflare_config_file=neflare_config,
         neflare_state_dir=str(merged.get("NEFLARE_STATE_DIR", "/var/lib/neflare")).strip() or "/var/lib/neflare",
-        bot_state_dir=str(merged.get("NEFLARE_BOT_STATE_DIR", "/var/lib/neflare-bot")).strip() or "/var/lib/neflare-bot",
+        bot_state_dir=bot_state_dir,
         ssh_port=str(merged.get("SSH_PORT", "")).strip(),
         admin_user=str(merged.get("ADMIN_USER", "admin")).strip() or "admin",
         server_public_endpoint=str(merged.get("SERVER_PUBLIC_ENDPOINT", "")).strip(),

@@ -96,6 +96,10 @@ load_installed_config_if_present() {
     info "Loading existing installed configuration from ${NEFLARE_CONFIG_FILE}"
     source_env_file "${NEFLARE_CONFIG_FILE}"
   fi
+  if [[ -f "${NEFLARE_BOT_STATE_DIR}/runtime.env" ]]; then
+    info "Loading bot runtime overrides from ${NEFLARE_BOT_STATE_DIR}/runtime.env"
+    source_env_file "${NEFLARE_BOT_STATE_DIR}/runtime.env"
+  fi
 }
 
 detect_default_timezone() {
@@ -296,6 +300,7 @@ save_installed_config() {
     "TEMP_ADMIN_ALLOW_V4=${TEMP_ADMIN_ALLOW_V4}" \
     "TEMP_ADMIN_ALLOW_V6=${TEMP_ADMIN_ALLOW_V6}" \
     "CREATED_ADMIN_USER=${CREATED_ADMIN_USER}"
+  rm -f "${NEFLARE_BOT_STATE_DIR}/runtime.env"
   success "Saved configuration to ${NEFLARE_CONFIG_FILE}"
 }
 

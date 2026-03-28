@@ -118,7 +118,7 @@ The installer will:
 13. apply explicit IPv4/IPv6 nftables rules
 14. install and run the CN SSH geo-block updater
 15. schedule weekly CN SSH geo-block refreshes
-16. enable BBR only if supported
+16. enable `tcp_bbr` with `fq` plus low-risk proxy-oriented sysctl tuning and install `/root/rollback-proxy-bbr.sh`
 17. optionally install and configure Docker for disposable network tests
 18. optionally deploy the Telegram bot
 19. run verification and print summary plus client YAML

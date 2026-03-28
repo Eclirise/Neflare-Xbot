@@ -56,7 +56,10 @@ verify_bbr_state() {
   if [[ "${BBR_STATUS:-unknown}" == "unsupported" ]]; then
     return 0
   fi
+  [[ -f "${BBR_MODULE_FILE}" ]] || die "BBR module load file is missing."
+  [[ -f "${BBR_SYSCTL_FILE}" ]] || die "BBR sysctl file is missing."
   [[ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)" == "bbr" ]] || die "BBR is not active."
+  [[ "$(sysctl -n net.core.default_qdisc 2>/dev/null || true)" == "fq" ]] || die "default_qdisc is not fq."
 }
 
 verify_docker_tests_state() {

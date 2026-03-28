@@ -90,8 +90,14 @@ restore_network_state() {
   if [[ -e "$(snapshot_path_for "${IPV6_SYSCTL_FILE}")" || -e "$(snapshot_path_for "${IPV6_SYSCTL_FILE}").missing" ]]; then
     restore_snapshot_path "${IPV6_SYSCTL_FILE}"
   fi
+  if [[ -e "$(snapshot_path_for "${BBR_MODULE_FILE}")" || -e "$(snapshot_path_for "${BBR_MODULE_FILE}").missing" ]]; then
+    restore_snapshot_path "${BBR_MODULE_FILE}"
+  fi
   if [[ -e "$(snapshot_path_for "${BBR_SYSCTL_FILE}")" || -e "$(snapshot_path_for "${BBR_SYSCTL_FILE}").missing" ]]; then
     restore_snapshot_path "${BBR_SYSCTL_FILE}"
+  fi
+  if [[ -e "$(snapshot_path_for "${BBR_ROLLBACK_FILE}")" || -e "$(snapshot_path_for "${BBR_ROLLBACK_FILE}").missing" ]]; then
+    restore_snapshot_path "${BBR_ROLLBACK_FILE}"
   fi
   validate_sshd_config
   systemctl reload ssh

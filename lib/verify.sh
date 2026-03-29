@@ -5,7 +5,7 @@ verify_os_support() {
 }
 
 verify_ssh_state() {
-  validate_sshd_config >/dev/null
+  validate_sshd_config >/dev/null || die "sshd configuration validation failed."
   local active_port root_login password_auth
   active_port="$(sshd -T | awk '/^port / {print $2; exit}')"
   root_login="$(sshd -T | awk '/^permitrootlogin / {print $2; exit}')"
@@ -16,11 +16,11 @@ verify_ssh_state() {
 }
 
 verify_firewall_state() {
-  validate_nftables_config_file "${NFTABLES_MAIN_FILE}" >/dev/null
+  validate_nftables_config_file "${NFTABLES_MAIN_FILE}" >/dev/null || die "nftables configuration validation failed for ${NFTABLES_MAIN_FILE}."
   systemctl is-active --quiet nftables || die "nftables service is not active."
   systemctl is-active --quiet neflare-cn-ssh-geo-update.timer || die "CN SSH geo-block update timer is not active."
   local ruleset
-  ruleset="$(nft list ruleset)"
+  ruleset="$(nft list ruleset)" || die "Failed to read active nftables ruleset."
   grep -q "tcp dport ${SSH_PORT} accept" <<<"${ruleset}" || die "nftables does not allow SSH port ${SSH_PORT}."
   grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow REALITY port ${XRAY_LISTEN_PORT}."
   local drop_line accept_line
@@ -42,14 +42,14 @@ verify_ipv6_state() {
 }
 
 verify_xray_state() {
-  validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null
+  validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null || die "Xray configuration validation failed for ${XRAY_CONFIG_PATH}."
   systemctl is-active --quiet xray || die "xray service is not active."
   systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
   ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${XRAY_LISTEN_PORT}."
 }
 
 verify_reality_policy_state() {
-  lint_current_reality_policy
+  lint_current_reality_policy || die "REALITY policy linting failed."
 }
 
 verify_bbr_state() {

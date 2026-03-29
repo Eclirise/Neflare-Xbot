@@ -6,10 +6,11 @@ verify_os_support() {
 
 verify_ssh_state() {
   validate_sshd_config >/dev/null || die "sshd configuration validation failed."
-  local active_port root_login password_auth
-  active_port="$(sshd -T | awk '/^port / {print $2; exit}')"
-  root_login="$(sshd -T | awk '/^permitrootlogin / {print $2; exit}')"
-  password_auth="$(sshd -T | awk '/^passwordauthentication / {print $2; exit}')"
+  local active_port root_login password_auth sshd_effective
+  sshd_effective="$(sshd -T)" || die "Failed to read effective sshd configuration."
+  active_port="$(awk '/^port / {print $2; exit}' <<<"${sshd_effective}")"
+  root_login="$(awk '/^permitrootlogin / {print $2; exit}' <<<"${sshd_effective}")"
+  password_auth="$(awk '/^passwordauthentication / {print $2; exit}' <<<"${sshd_effective}")"
   [[ "${active_port}" == "${SSH_PORT}" ]] || die "sshd active port '${active_port}' does not match configured SSH_PORT '${SSH_PORT}'."
   [[ "${root_login}" == "no" ]] || die "PermitRootLogin is not disabled."
   [[ "${password_auth}" == "no" ]] || die "PasswordAuthentication is not disabled."
@@ -24,8 +25,8 @@ verify_firewall_state() {
   grep -q "tcp dport ${SSH_PORT} accept" <<<"${ruleset}" || die "nftables does not allow SSH port ${SSH_PORT}."
   grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow REALITY port ${XRAY_LISTEN_PORT}."
   local drop_line accept_line
-  drop_line="$(grep -n "SSH CN IPv4 drop" <<<"${ruleset}" | head -n 1 | cut -d: -f1)"
-  accept_line="$(grep -n 'SSH"' <<<"${ruleset}" | head -n 1 | cut -d: -f1)"
+  drop_line="$(grep -n -m1 "SSH CN IPv4 drop" <<<"${ruleset}" | cut -d: -f1 || true)"
+  accept_line="$(grep -n -m1 'SSH"' <<<"${ruleset}" | cut -d: -f1 || true)"
   if [[ -n "${drop_line}" && -n "${accept_line}" ]]; then
     (( drop_line < accept_line )) || die "nftables rule ordering allows SSH before CN geo-drop."
   fi

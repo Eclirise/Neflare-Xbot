@@ -1,4 +1,6 @@
 [Service]
+ExecStart=
+ExecStart=__XRAY_EXEC_START__
 User=root
 Group=root
 UMask=0077

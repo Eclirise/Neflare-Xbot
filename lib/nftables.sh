@@ -131,6 +131,81 @@ validate_nftables_config_file() {
   nft -c -f "${path}"
 }
 
+nft_ruleset_allows_dport() {
+  local protocol="$1"
+  local port="$2"
+  nft -j list ruleset | python3 - "${protocol}" "${port}" <<'PY'
+import json
+import sys
+
+target_proto = sys.argv[1].strip().lower()
+target_port = int(sys.argv[2])
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+
+def port_matches(value):
+    if isinstance(value, int):
+        return value == target_port
+    if isinstance(value, str):
+        try:
+            return int(value) == target_port
+        except Exception:
+            return False
+    if isinstance(value, list):
+        return any(port_matches(item) for item in value)
+    if isinstance(value, dict):
+        for key in ("set", "range", "concat"):
+            if key in value and port_matches(value[key]):
+                return True
+        if "elem" in value:
+            return port_matches(value["elem"])
+    return False
+
+
+def expr_is_accept(expr):
+    if not isinstance(expr, dict):
+        return False
+    if "accept" in expr:
+        return True
+    verdict = expr.get("verdict")
+    return isinstance(verdict, dict) and "accept" in verdict
+
+
+def expr_matches_dport(expr):
+    if not isinstance(expr, dict):
+        return False
+    match = expr.get("match")
+    if not isinstance(match, dict):
+        return False
+    left = match.get("left")
+    if not isinstance(left, dict):
+        return False
+    payload = left.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    protocol = str(payload.get("protocol", "")).strip().lower()
+    field = str(payload.get("field", "")).strip().lower()
+    if field != "dport" or protocol not in {target_proto, "th"}:
+        return False
+    return port_matches(match.get("right"))
+
+
+for item in payload.get("nftables", []):
+    rule = item.get("rule")
+    if not isinstance(rule, dict):
+        continue
+    exprs = rule.get("expr", [])
+    if any(expr_matches_dport(expr) for expr in exprs) and any(expr_is_accept(expr) for expr in exprs):
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
 apply_nftables_file() {
   local rendered_file="$1"
   snapshot_file_once "${NFTABLES_MAIN_FILE}"

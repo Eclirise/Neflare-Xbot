@@ -87,6 +87,8 @@ configure_time_sync_runtime() {
 
   install_time_sync_units
   calibrate_server_time
-  systemctl enable --now neflare-time-sync.timer >/dev/null 2>&1 || true
+  systemctl enable --now neflare-time-sync.timer >/dev/null 2>&1 || die "Failed to enable and start neflare-time-sync.timer."
+  systemctl is-enabled --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not enabled after installation."
+  systemctl is-active --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not active after installation."
   success "Time sync watchdog is enabled"
 }

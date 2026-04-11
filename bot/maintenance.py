@@ -1061,6 +1061,52 @@ def git_head(repo_dir: str) -> str:
     return str(proc.stdout or "").strip()
 
 
+def git_status_porcelain(repo_dir: str) -> str:
+    proc = subprocess.run(
+        ["git", "-C", repo_dir, "status", "--porcelain=v1"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return ""
+    return str(proc.stdout or "").strip()
+
+
+def backup_dirty_checkout(repo_dir: str) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = Path("/var/backups/neflare/repo-hotfixes") / timestamp
+    backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    status_text = git_status_porcelain(repo_dir)
+    (backup_dir / "status.txt").write_text(status_text + ("\n" if status_text else ""), encoding="utf-8")
+
+    diff_proc = subprocess.run(
+        ["git", "-C", repo_dir, "diff", "--binary", "HEAD", "--"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
+    )
+    (backup_dir / "tracked.patch").write_text(diff_proc.stdout or "", encoding="utf-8")
+
+    untracked_proc = subprocess.run(
+        ["git", "-C", repo_dir, "ls-files", "--others", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+    (backup_dir / "untracked.txt").write_text(untracked_proc.stdout or "", encoding="utf-8")
+    return str(backup_dir)
+
+
 def git_subject(repo_dir: str) -> str:
     proc = subprocess.run(
         ["git", "-C", repo_dir, "log", "-1", "--pretty=%s"],
@@ -1159,6 +1205,12 @@ def run_repo_sync(config: Config) -> Dict[str, Any]:
             subject_before = git_subject(repo_dir)
             if commit_before:
                 stdout_chunks.append(f"[repo] current HEAD before sync: {commit_before} {subject_before}".strip())
+            dirty_status = git_status_porcelain(repo_dir)
+            if dirty_status:
+                backup_dir = backup_dirty_checkout(repo_dir)
+                stdout_chunks.append("[repo] dirty checkout detected before sync:")
+                stdout_chunks.append(dirty_status)
+                stdout_chunks.append(f"[repo] backup saved to {backup_dir}")
         repo_dir = ensure_repo_checkout(config)
         if not commit_before:
             commit_before = git_head(repo_dir)

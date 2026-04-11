@@ -83,9 +83,28 @@ parse_args() {
   done
 }
 
+warn_if_checkout_dirty() {
+  if [[ ! -d "${NEFLARE_SOURCE_ROOT}/.git" ]]; then
+    return 0
+  fi
+  local branch upstream porcelain
+  porcelain="$(git -C "${NEFLARE_SOURCE_ROOT}" status --porcelain=v1 2>/dev/null || true)"
+  [[ -n "${porcelain}" ]] || return 0
+  branch="$(git -C "${NEFLARE_SOURCE_ROOT}" branch --show-current 2>/dev/null || printf 'unknown')"
+  upstream="$(git -C "${NEFLARE_SOURCE_ROOT}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || printf 'origin/%s' "${branch}")"
+  warn "Detected a dirty git checkout in ${NEFLARE_SOURCE_ROOT} on branch ${branch} (upstream ${upstream})."
+  warn "Local checkout changes can block 'git pull --ff-only' and may be overwritten by a force-sync update."
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    warn "Dirty file: ${line}"
+  done <<<"${porcelain}"
+  warn "Run './safe-update.sh --check' to review and back up local hotfixes before syncing the checkout."
+}
+
 main() {
   parse_args "$@"
   ensure_root
+  warn_if_checkout_dirty
   mkdir_root_only "${NEFLARE_CONFIG_DIR}"
   mkdir_root_only "${NEFLARE_STATE_DIR}"
   mkdir_root_only "${NEFLARE_BACKUP_ROOT}"

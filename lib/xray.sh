@@ -86,7 +86,11 @@ download_xray_install_script() {
 install_xray_service_override() {
   snapshot_file_once "${XRAY_OVERRIDE_PATH}"
   mkdir_system_dir "${XRAY_OVERRIDE_DIR}" 0755
-  render_template_to "${NEFLARE_SOURCE_ROOT}/templates/xray.service.override.conf.tpl" "${XRAY_OVERRIDE_PATH}"
+  local xray_exec
+  xray_exec="$(xray_binary_path)"
+  [[ -n "${xray_exec}" ]] || die "Unable to locate the xray binary for the managed systemd override."
+  render_template_to "${NEFLARE_SOURCE_ROOT}/templates/xray.service.override.conf.tpl" "${XRAY_OVERRIDE_PATH}" \
+    "XRAY_EXEC_START=${xray_exec} run -config ${XRAY_CONFIG_PATH}"
   systemctl daemon-reload
 }
 
@@ -272,12 +276,77 @@ validate_xray_config_file() {
   xray run -test -c "${path}"
 }
 
-restart_xray_with_rollback() {
-  local previous_config="$1"
-  if systemctl restart xray; then
-    return 0
+xray_config_has_vless_reality_inbound() {
+  local path="${1:-${XRAY_CONFIG_PATH}}"
+  [[ -f "${path}" ]] || return 1
+  jq -e \
+    --argjson port "${XRAY_LISTEN_PORT}" \
+    '.inbounds[]? | select(.protocol == "vless" and (.port | tonumber) == $port and (.streamSettings.security // "") == "reality")' \
+    "${path}" >/dev/null
+}
+
+xray_config_has_ss2022_inbound() {
+  local path="${1:-${XRAY_CONFIG_PATH}}"
+  [[ -f "${path}" ]] || return 1
+  jq -e \
+    --argjson port "${SS2022_LISTEN_PORT}" \
+    '
+    .inbounds[]?
+    | select(.protocol == "shadowsocks" and (.port | tonumber) == $port)
+    | select(((.settings.network // "") | split(",") | map(gsub("^\\s+|\\s+$"; ""))) | index("tcp"))
+    | select(((.settings.network // "") | split(",") | map(gsub("^\\s+|\\s+$"; ""))) | index("udp"))
+    ' \
+    "${path}" >/dev/null
+}
+
+xray_runtime_matches_declared_state() {
+  local path="${1:-${XRAY_CONFIG_PATH}}"
+  if enable_vless_reality && ! xray_config_has_vless_reality_inbound "${path}"; then
+    return 1
   fi
-  warn "Xray restart failed; restoring previous configuration"
+  if enable_ss2022 && ! xray_config_has_ss2022_inbound "${path}"; then
+    return 1
+  fi
+  return 0
+}
+
+assert_xray_runtime_matches_declared_state() {
+  local path="${1:-${XRAY_CONFIG_PATH}}"
+  if enable_vless_reality && ! xray_config_has_vless_reality_inbound "${path}"; then
+    die "VLESS+REALITY is enabled in configuration, but ${path} does not contain the expected inbound."
+  fi
+  if enable_ss2022 && ! xray_config_has_ss2022_inbound "${path}"; then
+    die "Shadowsocks 2022 is enabled in configuration, but ${path} does not contain the expected inbound."
+  fi
+}
+
+xray_listeners_ready() {
+  if enable_vless_reality; then
+    ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || return 1
+  fi
+  if enable_ss2022; then
+    ss -H -ltn "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || return 1
+    ss -H -lun "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || return 1
+  fi
+  return 0
+}
+
+wait_for_xray_listeners() {
+  local timeout_seconds="${1:-15}"
+  local deadline=$((SECONDS + timeout_seconds))
+  while true; do
+    if xray_listeners_ready; then
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+restore_previous_xray_state() {
+  local previous_config="$1"
   if [[ -s "${previous_config}" ]]; then
     cp -a "${previous_config}" "${XRAY_CONFIG_PATH}"
   else
@@ -286,6 +355,15 @@ restart_xray_with_rollback() {
   if [[ -n "${XRAY_BINARY_ROLLBACK_COPY}" && -f "${XRAY_BINARY_ROLLBACK_COPY}" && -n "${XRAY_BINARY_TARGET_PATH}" ]]; then
     cp -a "${XRAY_BINARY_ROLLBACK_COPY}" "${XRAY_BINARY_TARGET_PATH}"
   fi
+}
+
+restart_xray_with_rollback() {
+  local previous_config="$1"
+  if systemctl restart xray; then
+    return 0
+  fi
+  warn "Xray restart failed; restoring previous configuration"
+  restore_previous_xray_state "${previous_config}"
   systemctl restart xray || true
   die "Xray restart failed and previous configuration was restored."
 }
@@ -304,18 +382,25 @@ apply_xray_config() {
   install_file_atomic "${rendered}" "${XRAY_CONFIG_PATH}" 0600 root root
   if ! validate_xray_config_file "${XRAY_CONFIG_PATH}"; then
     warn "Xray config validation failed; restoring previous configuration"
-    if [[ -s "${previous}" ]]; then
-      cp -a "${previous}" "${XRAY_CONFIG_PATH}"
-    else
-      rm -f "${XRAY_CONFIG_PATH}"
-    fi
-    if [[ -n "${XRAY_BINARY_ROLLBACK_COPY}" && -f "${XRAY_BINARY_ROLLBACK_COPY}" && -n "${XRAY_BINARY_TARGET_PATH}" ]]; then
-      cp -a "${XRAY_BINARY_ROLLBACK_COPY}" "${XRAY_BINARY_TARGET_PATH}"
-    fi
+    restore_previous_xray_state "${previous}"
     rm -f "${previous}"
     die "Xray configuration validation failed."
   fi
   restart_xray_with_rollback "${previous}"
+  if ! xray_runtime_matches_declared_state "${XRAY_CONFIG_PATH}"; then
+    warn "Managed Xray runtime drift detected after restart; restoring previous configuration"
+    restore_previous_xray_state "${previous}"
+    systemctl restart xray || true
+    rm -f "${previous}"
+    die "Xray runtime configuration does not match the declared feature set."
+  fi
+  if ! wait_for_xray_listeners 15; then
+    warn "Expected Xray listeners did not appear after restart; restoring previous configuration"
+    restore_previous_xray_state "${previous}"
+    systemctl restart xray || true
+    rm -f "${previous}"
+    die "Xray listeners did not become ready after applying the managed configuration."
+  fi
   rm -f "${previous}"
   success "Xray configuration applied successfully"
 }

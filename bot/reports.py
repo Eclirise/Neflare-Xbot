@@ -13,6 +13,7 @@ from config import Config
 from state import load_countdown, load_json, quota_path, save_json
 
 DAILY_START_HOUR = 5
+XRAY_CONFIG_PATH = "/usr/local/etc/xray/config.json"
 
 
 def is_zh(config: Config) -> bool:
@@ -300,6 +301,58 @@ def xray_status() -> Tuple[str, str]:
     return active, version[0] if version else "unknown"
 
 
+def load_xray_config() -> Dict[str, Any]:
+    try:
+        with open(XRAY_CONFIG_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def inbound_port(inbound: Dict[str, Any]) -> str:
+    return str(inbound.get("port", "")).strip()
+
+
+def inbound_networks(inbound: Dict[str, Any]) -> set[str]:
+    settings = inbound.get("settings", {})
+    if not isinstance(settings, dict):
+        return set()
+    raw = str(settings.get("network", "") or "")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def xray_runtime_state(config: Config) -> Dict[str, bool]:
+    payload = load_xray_config()
+    inbounds = payload.get("inbounds", [])
+    if not isinstance(inbounds, list):
+        inbounds = []
+
+    rendered_vless = False
+    rendered_ss2022 = False
+    for inbound in inbounds:
+        if not isinstance(inbound, dict):
+            continue
+        protocol = str(inbound.get("protocol", "")).strip().lower()
+        port = inbound_port(inbound)
+        if (
+            protocol == "vless"
+            and port == str(config.xray_listen_port).strip()
+            and str(((inbound.get("streamSettings") or {}).get("security", ""))).strip().lower() == "reality"
+        ):
+            rendered_vless = True
+        if protocol == "shadowsocks" and port == str(config.ss2022_listen_port).strip():
+            if {"tcp", "udp"}.issubset(inbound_networks(inbound)):
+                rendered_ss2022 = True
+
+    return {
+        "expected_vless": is_enabled(config.enable_vless_reality),
+        "expected_ss2022": is_enabled(config.enable_ss2022),
+        "rendered_vless": rendered_vless,
+        "rendered_ss2022": rendered_ss2022,
+    }
+
+
 def hysteria2_status() -> str:
     return run_status("systemctl", "is-active", "neflare-hysteria2") or "inactive"
 
@@ -329,20 +382,25 @@ def enabled_protocol_names(config: Config) -> list[str]:
     return names
 
 
-def listener_summary_lines(config: Config) -> list[str]:
+def listener_summary_lines(config: Config, runtime_state: Dict[str, bool]) -> list[str]:
     unset_text = text_by_lang(config, "未设置", "unset")
     disabled_text = text_by_lang(config, "未启用", "disabled")
+    mismatch_text = text_by_lang(config, "env 已启用但 Xray 运行配置缺少 inbound", "enabled in env, but missing from xray runtime config")
     lines = [f"- SSH: TCP {config.ssh_port or unset_text}"]
-    if is_enabled(config.enable_vless_reality):
+    if runtime_state.get("expected_vless") and runtime_state.get("rendered_vless"):
         lines.append(f"- VLESS+REALITY: TCP {config.xray_listen_port}")
+    elif runtime_state.get("expected_vless"):
+        lines.append(f"- VLESS+REALITY: {mismatch_text}")
     else:
         lines.append(f"- VLESS+REALITY: {disabled_text}")
     if is_enabled(config.enable_hysteria2):
         lines.append(f"- Hysteria 2: UDP {config.hysteria2_listen_port}")
     else:
         lines.append(f"- Hysteria 2: {disabled_text}")
-    if is_enabled(config.enable_ss2022):
+    if runtime_state.get("expected_ss2022") and runtime_state.get("rendered_ss2022"):
         lines.append(f"- SS2022: TCP/UDP {config.ss2022_listen_port}")
+    elif runtime_state.get("expected_ss2022"):
+        lines.append(f"- SS2022: {mismatch_text}")
     else:
         lines.append(f"- SS2022: {disabled_text}")
     return lines
@@ -532,12 +590,17 @@ def status_text(config: Config) -> str:
     quota = quota_snapshot(config)
     countdown = countdown_snapshot(config)
     xray_active, xray_version = xray_status()
+    runtime_state = xray_runtime_state(config)
     hy2_active = hysteria2_status()
     clock_enabled, clock_synchronized = time_sync_status()
     sys = health()
     next_reset_local = format_dt_local(config, parse_utc(quota["next_reset_utc"]))
     enabled_protocols = ", ".join(enabled_protocol_names(config)) or text_by_lang(config, "无", "none")
-    listener_lines = listener_summary_lines(config)
+    listener_lines = listener_summary_lines(config, runtime_state)
+    runtime_mismatch = (
+        (runtime_state.get("expected_vless") and not runtime_state.get("rendered_vless"))
+        or (runtime_state.get("expected_ss2022") and not runtime_state.get("rendered_ss2022"))
+    )
     xray_overview = (
         f"{xray_active}｜{xray_version}"
         if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)
@@ -563,6 +626,11 @@ def status_text(config: Config) -> str:
         if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)
         else text_by_lang(config, "- xray: 未启用", "- xray: disabled")
     )
+    xray_runtime_line = (
+        text_by_lang(config, "- xray 运行配置: 已对齐", "- xray runtime config: aligned")
+        if not runtime_mismatch
+        else text_by_lang(config, "- xray 运行配置: 与 env 不一致", "- xray runtime config: mismatched with env")
+    )
     hy2_service_line = (
         f"- hysteria2: {hy2_active}"
         if is_enabled(config.enable_hysteria2)
@@ -583,6 +651,7 @@ def status_text(config: Config) -> str:
             *listener_lines,
             text_by_lang(config, "服务状态：", "Service status:"),
             xray_service_line,
+            xray_runtime_line if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022) else "",
             hy2_service_line,
             clock_line if is_enabled(config.enable_time_sync) else text_by_lang(config, "- 时间同步: 未启用", "- time sync: disabled"),
             "",

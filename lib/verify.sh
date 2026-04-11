@@ -22,18 +22,18 @@ verify_firewall_state() {
   systemctl is-active --quiet neflare-cn-ssh-geo-update.timer || die "CN SSH geo-block update timer is not active."
   local ruleset
   ruleset="$(nft list ruleset)" || die "Failed to read active nftables ruleset."
-  grep -q "tcp dport ${SSH_PORT} accept" <<<"${ruleset}" || die "nftables does not allow SSH port ${SSH_PORT}."
+  nft_ruleset_allows_dport tcp "${SSH_PORT}" || die "nftables does not allow SSH port ${SSH_PORT}."
   if enable_vless_reality; then
-    grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow VLESS+REALITY port ${XRAY_LISTEN_PORT}."
+    nft_ruleset_allows_dport tcp "${XRAY_LISTEN_PORT}" || die "nftables does not allow VLESS+REALITY port ${XRAY_LISTEN_PORT}."
   fi
   if enable_ss2022; then
-    grep -q "tcp dport ${SS2022_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT}."
-    grep -q "udp dport ${SS2022_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Shadowsocks 2022 UDP/${SS2022_LISTEN_PORT}."
+    nft_ruleset_allows_dport tcp "${SS2022_LISTEN_PORT}" || die "nftables does not allow Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT}."
+    nft_ruleset_allows_dport udp "${SS2022_LISTEN_PORT}" || die "nftables does not allow Shadowsocks 2022 UDP/${SS2022_LISTEN_PORT}."
   fi
   if enable_hysteria2; then
-    grep -q "udp dport ${HYSTERIA2_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Hysteria 2 UDP/${HYSTERIA2_LISTEN_PORT}."
+    nft_ruleset_allows_dport udp "${HYSTERIA2_LISTEN_PORT}" || die "nftables does not allow Hysteria 2 UDP/${HYSTERIA2_LISTEN_PORT}."
     if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
-      grep -q "tcp dport ${HYSTERIA2_ACME_HTTP_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
+      nft_ruleset_allows_dport tcp "${HYSTERIA2_ACME_HTTP_PORT}" || die "nftables does not allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
     fi
   fi
   local drop_line accept_line
@@ -59,6 +59,8 @@ verify_time_sync_state() {
     return 0
   fi
   time_sync_supported || die "timedatectl/systemctl is unavailable for time sync verification."
+  [[ -f "${TIME_SYNC_SERVICE_UNIT}" ]] || die "${TIME_SYNC_SERVICE_UNIT} is missing."
+  [[ -f "${TIME_SYNC_TIMER_UNIT}" ]] || die "${TIME_SYNC_TIMER_UNIT} is missing."
   systemctl is-active --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not active."
   systemctl is-enabled --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not enabled at boot."
   time_sync_ntp_enabled || die "Automatic NTP synchronization is not enabled."
@@ -75,6 +77,7 @@ verify_xray_state() {
     return 0
   fi
   validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null || die "Xray configuration validation failed for ${XRAY_CONFIG_PATH}."
+  assert_xray_runtime_matches_declared_state "${XRAY_CONFIG_PATH}"
   systemctl is-active --quiet xray || die "xray service is not active."
   systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
   if enable_vless_reality; then
@@ -194,6 +197,9 @@ print_client_yaml_snippet() {
   if ! enable_vless_reality && ! enable_hysteria2 && ! enable_ss2022; then
     echo "# No proxy protocols are enabled; no Clash Meta snippet is available."
     return 0
+  fi
+  if xray_features_enabled; then
+    assert_xray_runtime_matches_declared_state "${XRAY_CONFIG_PATH}"
   fi
 
   cat <<EOF

@@ -359,7 +359,8 @@ Repository code update:
 
 ```bash
 cd /opt/Neflare-Xbot
-sudo git pull --ff-only
+sudo ./safe-update.sh --check
+sudo ./safe-update.sh --sync
 sudo ./install.sh
 ```
 
@@ -399,9 +400,16 @@ Existing VLESS + REALITY-only hosts can safely update with:
 
 ```bash
 cd /opt/Neflare-Xbot
-sudo git pull --ff-only
+sudo ./safe-update.sh --sync
 sudo ./install.sh
 ```
+
+If the checkout contains local hotfixes, `safe-update.sh` will:
+
+- show whether the worktree is dirty
+- list the modified files
+- save tracked diffs and untracked-file inventory under `/var/backups/neflare/repo-hotfixes/` when writable
+- make the overwrite step explicit before realigning the checkout to the upstream branch
 
 Expected default behavior:
 

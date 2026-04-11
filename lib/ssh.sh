@@ -34,6 +34,22 @@ user_home_dir() {
   getent passwd "$1" | awk -F: '{print $6}'
 }
 
+visudo_binary_path() {
+  local candidate=""
+  candidate="$(command -v visudo 2>/dev/null || true)"
+  if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+  for candidate in /usr/sbin/visudo /sbin/visudo /usr/bin/visudo; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 ensure_admin_user() {
   snapshot_file_once "${SUDOERS_DROPIN_PATH}"
   if id "${ADMIN_USER}" >/dev/null 2>&1; then
@@ -60,9 +76,11 @@ ensure_admin_user() {
   chmod 0600 "${auth_keys}"
 
   if [[ "${ADMIN_NOPASSWD_SUDO}" == "yes" ]]; then
+    local visudo_bin=""
+    visudo_bin="$(visudo_binary_path)" || die "visudo was not found. Install the sudo package correctly before continuing."
     install_text "${SUDOERS_DROPIN_PATH}" "${ADMIN_USER} ALL=(ALL:ALL) NOPASSWD:ALL
 " 0440 root root
-    visudo -cf "${SUDOERS_DROPIN_PATH}" >/dev/null
+    "${visudo_bin}" -cf "${SUDOERS_DROPIN_PATH}" >/dev/null
   else
     rm -f "${SUDOERS_DROPIN_PATH}"
   fi

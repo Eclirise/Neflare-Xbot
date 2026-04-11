@@ -1,0 +1,15 @@
+[Unit]
+Description=NeFlare time synchronization watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/neflarectl time-sync --quiet
+User=root
+Group=root
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+NoNewPrivileges=yes

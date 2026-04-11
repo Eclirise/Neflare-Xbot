@@ -1,0 +1,21 @@
+[Unit]
+Description=NeFlare Hysteria 2 server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/neflare/hysteria2
+ExecStart=/usr/local/bin/hysteria server -c /etc/neflare/hysteria2.yaml
+Restart=on-failure
+RestartSec=5s
+User=root
+Group=root
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

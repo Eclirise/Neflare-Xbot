@@ -58,6 +58,7 @@ class Config:
     chat_id: str
     bot_bind_token: str
     enable_docker_tests: str
+    enable_time_sync: str
     bot_log_retention_days: int
     bot_log_max_bytes: int
     repo_sync_url: str
@@ -74,11 +75,19 @@ class Config:
     ssh_port: str
     admin_user: str
     server_public_endpoint: str
+    enable_vless_reality: str
+    enable_hysteria2: str
+    enable_ss2022: str
     reality_selected_domain: str
     xray_listen_port: str
     xray_public_key: str
     xray_uuid: str
     xray_short_ids: str
+    hysteria2_domain: str
+    hysteria2_listen_port: str
+    hysteria2_tls_mode: str
+    ss2022_listen_port: str
+    ss2022_method: str
     enable_ipv6: str
     enable_bot: str
 
@@ -101,6 +110,7 @@ def load_config() -> Config:
         chat_id=str(merged.get("CHAT_ID", "")).strip(),
         bot_bind_token=str(merged.get("BOT_BIND_TOKEN", "")).strip(),
         enable_docker_tests=str(merged.get("ENABLE_DOCKER_TESTS", "yes")).strip() or "yes",
+        enable_time_sync=str(merged.get("ENABLE_TIME_SYNC", "yes")).strip() or "yes",
         bot_log_retention_days=parse_int(str(merged.get("BOT_LOG_RETENTION_DAYS", "14") or "14"), 14),
         bot_log_max_bytes=parse_int(str(merged.get("BOT_LOG_MAX_BYTES", "65536") or "65536"), 65536),
         repo_sync_url=str(merged.get("REPO_SYNC_URL", "https://github.com/Eclirise/Neflare-Xbot.git")).strip(),
@@ -117,11 +127,19 @@ def load_config() -> Config:
         ssh_port=str(merged.get("SSH_PORT", "")).strip(),
         admin_user=str(merged.get("ADMIN_USER", "admin")).strip() or "admin",
         server_public_endpoint=str(merged.get("SERVER_PUBLIC_ENDPOINT", "")).strip(),
+        enable_vless_reality=str(merged.get("ENABLE_VLESS_REALITY", "yes")).strip() or "yes",
+        enable_hysteria2=str(merged.get("ENABLE_HYSTERIA2", "no")).strip() or "no",
+        enable_ss2022=str(merged.get("ENABLE_SS2022", "no")).strip() or "no",
         reality_selected_domain=str(merged.get("REALITY_SELECTED_DOMAIN", "")).strip(),
         xray_listen_port=str(merged.get("XRAY_LISTEN_PORT", "443")).strip() or "443",
         xray_public_key=str(merged.get("XRAY_PUBLIC_KEY", "")).strip(),
         xray_uuid=str(merged.get("XRAY_UUID", "")).strip(),
         xray_short_ids=str(merged.get("XRAY_SHORT_IDS", "")).strip(),
+        hysteria2_domain=str(merged.get("HYSTERIA2_DOMAIN", "")).strip(),
+        hysteria2_listen_port=str(merged.get("HYSTERIA2_LISTEN_PORT", "443")).strip() or "443",
+        hysteria2_tls_mode=str(merged.get("HYSTERIA2_TLS_MODE", "acme")).strip() or "acme",
+        ss2022_listen_port=str(merged.get("SS2022_LISTEN_PORT", "40010")).strip() or "40010",
+        ss2022_method=str(merged.get("SS2022_METHOD", "2022-blake3-aes-256-gcm")).strip() or "2022-blake3-aes-256-gcm",
         enable_ipv6=str(merged.get("ENABLE_IPV6", "yes")).strip() or "yes",
         enable_bot=str(merged.get("ENABLE_BOT", "yes")).strip() or "yes",
     )

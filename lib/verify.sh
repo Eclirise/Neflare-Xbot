@@ -23,7 +23,19 @@ verify_firewall_state() {
   local ruleset
   ruleset="$(nft list ruleset)" || die "Failed to read active nftables ruleset."
   grep -q "tcp dport ${SSH_PORT} accept" <<<"${ruleset}" || die "nftables does not allow SSH port ${SSH_PORT}."
-  grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow REALITY port ${XRAY_LISTEN_PORT}."
+  if enable_vless_reality; then
+    grep -q "tcp dport ${XRAY_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow VLESS+REALITY port ${XRAY_LISTEN_PORT}."
+  fi
+  if enable_ss2022; then
+    grep -q "tcp dport ${SS2022_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT}."
+    grep -q "udp dport ${SS2022_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Shadowsocks 2022 UDP/${SS2022_LISTEN_PORT}."
+  fi
+  if enable_hysteria2; then
+    grep -q "udp dport ${HYSTERIA2_LISTEN_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Hysteria 2 UDP/${HYSTERIA2_LISTEN_PORT}."
+    if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
+      grep -q "tcp dport ${HYSTERIA2_ACME_HTTP_PORT} accept" <<<"${ruleset}" || die "nftables does not allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
+    fi
+  fi
   local drop_line accept_line
   drop_line="$(grep -n -m1 "SSH CN IPv4 drop" <<<"${ruleset}" | cut -d: -f1 || true)"
   accept_line="$(grep -n -m1 'SSH"' <<<"${ruleset}" | cut -d: -f1 || true)"
@@ -42,15 +54,52 @@ verify_ipv6_state() {
   fi
 }
 
+verify_time_sync_state() {
+  if ! enable_time_sync; then
+    return 0
+  fi
+  time_sync_supported || die "timedatectl/systemctl is unavailable for time sync verification."
+  systemctl is-active --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not active."
+  systemctl is-enabled --quiet neflare-time-sync.timer || die "neflare-time-sync.timer is not enabled at boot."
+  time_sync_ntp_enabled || die "Automatic NTP synchronization is not enabled."
+  if ! time_sync_synchronized; then
+    if enable_ss2022; then
+      die "System clock is not reported as synchronized, which is unsafe for Shadowsocks 2022 replay protection."
+    fi
+    warn "System clock is not reported as synchronized yet; periodic maintenance is enabled and will retry."
+  fi
+}
+
 verify_xray_state() {
+  if ! xray_features_enabled; then
+    return 0
+  fi
   validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null || die "Xray configuration validation failed for ${XRAY_CONFIG_PATH}."
   systemctl is-active --quiet xray || die "xray service is not active."
   systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
-  ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${XRAY_LISTEN_PORT}."
+  if enable_vless_reality; then
+    ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${XRAY_LISTEN_PORT} for VLESS+REALITY."
+  fi
+  if enable_ss2022; then
+    ss -H -ltn "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
+    ss -H -lun "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || die "No listener found on UDP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
+  fi
+}
+
+verify_hysteria2_state() {
+  if ! enable_hysteria2; then
+    return 0
+  fi
+  validate_hysteria2_config_file "${HYSTERIA2_CONFIG_PATH}"
+  systemctl is-active --quiet neflare-hysteria2 || die "neflare-hysteria2 service is not active."
+  systemctl is-enabled --quiet neflare-hysteria2 || die "neflare-hysteria2 service is not enabled at boot."
+  ss -H -lun "( sport = :${HYSTERIA2_LISTEN_PORT} )" | grep -q . || die "No listener found on UDP/${HYSTERIA2_LISTEN_PORT} for Hysteria 2."
 }
 
 verify_reality_policy_state() {
-  lint_current_reality_policy || die "REALITY policy linting failed."
+  if enable_vless_reality; then
+    lint_current_reality_policy || die "REALITY policy linting failed."
+  fi
 }
 
 verify_bbr_state() {
@@ -111,7 +160,9 @@ run_full_verification() {
   verify_ssh_state
   verify_firewall_state
   verify_ipv6_state
+  verify_time_sync_state
   verify_xray_state
+  verify_hysteria2_state
   verify_reality_policy_state
   verify_bbr_state
   verify_docker_tests_state
@@ -120,18 +171,38 @@ run_full_verification() {
 }
 
 print_cloud_firewall_guidance() {
-  echo "$(i18n_text cloud_firewall_header)"
-  echo "$(i18n_text provider_inbound_drop)"
-  echo "$(i18n_text provider_outbound_accept)"
-  printf '%s\n' "$(i18n_text provider_allow_xray "${XRAY_LISTEN_PORT}")"
-  printf '%s\n' "$(i18n_text provider_allow_ssh "${SSH_PORT}")"
+  echo "Provider firewall manual rules:"
+  echo "- Inbound default: DROP"
+  echo "- Outbound default: ACCEPT"
+  echo "- Allow TCP/${SSH_PORT} from your admin source(s)"
+  if enable_vless_reality; then
+    echo "- Allow TCP/${XRAY_LISTEN_PORT} from anywhere for VLESS+REALITY"
+  fi
+  if enable_ss2022; then
+    echo "- Allow TCP/${SS2022_LISTEN_PORT} from anywhere for Shadowsocks 2022"
+    echo "- Allow UDP/${SS2022_LISTEN_PORT} from anywhere for Shadowsocks 2022"
+  fi
+  if enable_hysteria2; then
+    echo "- Allow UDP/${HYSTERIA2_LISTEN_PORT} from anywhere for Hysteria 2"
+    if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
+      echo "- Allow TCP/${HYSTERIA2_ACME_HTTP_PORT} from anywhere for Hysteria 2 ACME HTTP-01"
+    fi
+  fi
 }
 
 print_client_yaml_snippet() {
-  local proxy_name="${CLIENT_PROXY_NAME:-neflare-reality}"
+  if ! enable_vless_reality && ! enable_hysteria2 && ! enable_ss2022; then
+    echo "# No proxy protocols are enabled; no Clash Meta snippet is available."
+    return 0
+  fi
+
   cat <<EOF
 proxies:
-  - name: "${proxy_name}"
+EOF
+
+  if enable_vless_reality; then
+    cat <<EOF
+  - name: "${CLIENT_PROXY_NAME_VLESS:-neflare-reality}"
     type: vless
     server: ${SERVER_PUBLIC_ENDPOINT}
     port: ${XRAY_LISTEN_PORT}
@@ -141,57 +212,78 @@ proxies:
     udp: true
     packet-encoding: xudp
     flow: xtls-rprx-vision
+    encryption: ""
     servername: ${REALITY_SERVER_NAME}
     client-fingerprint: chrome
     reality-opts:
       public-key: ${XRAY_PUBLIC_KEY}
       short-id: $(first_short_id)
 EOF
+  fi
+
+  if enable_hysteria2; then
+    cat <<EOF
+  - name: "${CLIENT_PROXY_NAME_HYSTERIA2:-neflare-hysteria2}"
+    type: hysteria2
+    server: ${SERVER_PUBLIC_ENDPOINT}
+    port: ${HYSTERIA2_LISTEN_PORT}
+    password: ${HYSTERIA2_AUTH_PASSWORD}
+    sni: ${HYSTERIA2_DOMAIN}
+    skip-cert-verify: false
+    alpn:
+      - h3
+EOF
+  fi
+
+  if enable_ss2022; then
+    cat <<EOF
+  - name: "${CLIENT_PROXY_NAME_SS2022:-neflare-ss2022}"
+    type: ss
+    server: ${SERVER_PUBLIC_ENDPOINT}
+    port: ${SS2022_LISTEN_PORT}
+    cipher: ${SS2022_METHOD}
+    password: ${SS2022_PASSWORD}
+    udp: true
+EOF
+  fi
 }
 
 print_policy_summary() {
+  if ! enable_vless_reality; then
+    echo "Policy summary:"
+    echo "- VLESS+REALITY is disabled."
+    return 0
+  fi
+
   local policy_level apple_related unresolved public_port_status triggered
-  public_port_status="$(i18n_bool no)"
+  public_port_status="no"
   if [[ "${XRAY_LISTEN_PORT}" == "443" ]]; then
-    public_port_status="$(i18n_bool yes)"
+    public_port_status="yes"
   fi
   policy_level="$(policy_state_field '.selected.policy.warning_level // empty')"
   apple_related="$(policy_state_field '.selected.policy.apple_related // false')"
   unresolved="$(policy_state_field '(.selected.policy.unresolved_warnings // []) | join("; ")')"
-  triggered="$(i18n_bool no)"
+  triggered="no"
   if [[ -n "${policy_level}" && "${policy_level}" != "none" && "${policy_level}" != "null" ]]; then
-    triggered="$(i18n_bool yes)"
+    triggered="yes"
   fi
   if [[ -z "${policy_level}" || "${policy_level}" == "null" ]]; then
-    if [[ "$(current_ui_lang)" == "zh" ]]; then
-      policy_level="未知"
-    else
-      policy_level="unknown"
-    fi
-  elif [[ "$(current_ui_lang)" == "zh" ]]; then
-    case "${policy_level}" in
-      none) policy_level="无" ;;
-      "soft warning") policy_level="轻度告警" ;;
-      "strong warning") policy_level="强告警" ;;
-      "hard failure") policy_level="硬失败" ;;
-    esac
+    policy_level="unknown"
   fi
-  apple_related="$(i18n_bool "$(normalize_yes_no "${apple_related}")")"
   if [[ -z "${unresolved}" || "${unresolved}" == "null" ]]; then
-    unresolved="$(i18n_none)"
+    unresolved="none"
   fi
-  echo "$(i18n_text policy_header)"
-  printf '%s\n' "$(i18n_text policy_port443 "${public_port_status}")"
-  printf '%s\n' "$(i18n_text policy_ipv6 "$(i18n_bool "${ENABLE_IPV6}")")"
-  printf '%s\n' "$(i18n_text policy_triggered "${triggered}")"
-  printf '%s\n' "$(i18n_text policy_level "${policy_level}")"
-  printf '%s\n' "$(i18n_text policy_apple "${apple_related}")"
-  printf '%s\n' "$(i18n_text policy_unresolved "${unresolved}")"
+  echo "Policy summary:"
+  echo "- Public REALITY port is 443: ${public_port_status}"
+  echo "- IPv6 mode: ${ENABLE_IPV6}"
+  echo "- Selected camouflage target triggered operational-risk warnings: ${triggered}"
+  echo "- Selected camouflage target warning level: ${policy_level}"
+  echo "- Selected target is Apple/iCloud-related: ${apple_related}"
+  echo "- Unresolved conservative warnings: ${unresolved}"
 }
 
 summary_heading() {
-  local key="$1"
-  echo "$(i18n_text "${key}")"
+  echo "$1"
 }
 
 summary_line_done() {
@@ -199,73 +291,29 @@ summary_line_done() {
 }
 
 print_final_summary_lists() {
-  if [[ "$(current_ui_lang)" == "zh" ]]; then
-    summary_heading summary_done
-    echo "- 已明确限定仅支持 Debian ${DISTRO_VERSION_ID}"
-    echo "- SSH 已迁移到持久化端口 ${SSH_PORT}，并关闭 root 与密码登录"
-    echo "- nftables 已启用入站默认拒绝，仅放行 TCP/${XRAY_LISTEN_PORT} 和 SSH"
-    if [[ "${ENABLE_IPV6}" == "yes" ]]; then
-      echo "- IPv6 已启用并配置显式防火墙策略"
-    else
-      echo "- IPv6 已通过 sysctl 和防火墙显式禁用"
-    fi
-    echo "- Xray VLESS + REALITY 已配置在 TCP/RAW ${XRAY_LISTEN_PORT}"
-    echo "- 已完成 REALITY 候选测试并选定 ${REALITY_SELECTED_DOMAIN}"
-    echo "- 已部署基于 APNIC 的 CN SSH geo-block 更新器"
-    echo "- 已启用基于 vnStat 的日报与配额统计能力"
-    if [[ "${ENABLE_BOT}" == "yes" ]]; then
-      echo "- 已部署可选 Telegram Bot"
-    fi
-    if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
-      echo "- 已启用一次性 Docker 网络测试运行时"
-    fi
-
-    summary_heading summary_not_done
-    echo "- 未实现云厂商控制台防火墙自动化"
-    echo "- 未实现 APNIC 完整签名信任链校验"
-    if [[ "${ENABLE_BOT}" != "yes" ]]; then
-      echo "- 未启用 Telegram Bot"
-    fi
-    if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
-      echo "- 尚未清理临时管理员放行规则"
-    fi
-
-    summary_heading summary_limitations
-    echo "- CN SSH 阻断基于 APNIC 分配数据，不是商业级精确地理库"
-    echo "- REALITY 适配评分属于保守启发式，网络或目标变化后应重新测试"
-    if [[ "${XRAY_LISTEN_PORT}" != "443" ]]; then
-      echo "- 公网 REALITY 监听端口不是 443，本项目将其视为更高风险的运维选择"
-    fi
-    if [[ "${ENABLE_IPV6}" == "no" ]]; then
-      echo "- 公网 IPv6 连通性被有意禁用"
-    fi
-    if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
-      echo "- Docker 测试运行时使用 host 网络并关闭 Docker 自身防火墙管理；不适合与已有自定义 Docker 网络配置混用"
-    fi
-
-    summary_heading summary_manual
-    echo "- 在云厂商面板中放行 TCP/${XRAY_LISTEN_PORT} 和 TCP/${SSH_PORT}"
-    echo "- 从新终端验证 ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT}:${SSH_PORT} 的 SSH 登录"
-    if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-      echo "- 在 ${BOT_ENV_FILE} 中补充 BOT_TOKEN 和可选的 CHAT_ID，然后启动 neflare-bot"
-    fi
-    if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
-      echo "- 不再需要迁移保护后，删除临时管理员放行规则"
-    fi
-    return 0
-  fi
-
-  summary_heading summary_done
+  summary_heading "Done:"
   summary_line_done "Debian ${DISTRO_VERSION_ID} support with explicit Debian-only detection"
   summary_line_done "Hardened SSH on persisted port ${SSH_PORT} with root/password login disabled"
-  summary_line_done "nftables default-drop inbound policy with TCP/${XRAY_LISTEN_PORT} and SSH allowances only"
+  summary_line_done "nftables default-drop inbound policy with only the enabled listener set allowed"
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     summary_line_done "Explicit IPv6 firewall policy enabled"
   else
     summary_line_done "IPv6 explicitly disabled with sysctl and firewall enforcement"
   fi
-  summary_line_done "Xray VLESS + REALITY configured on TCP/RAW ${XRAY_LISTEN_PORT}"
-  summary_line_done "REALITY camouflage candidate testing and selected target ${REALITY_SELECTED_DOMAIN}"
+  if enable_time_sync; then
+    summary_line_done "Periodic time synchronization watchdog enabled"
+  fi
+  summary_line_done "Enabled protocols: $(protocols_enabled_summary)"
+  if enable_vless_reality; then
+    summary_line_done "VLESS+REALITY configured on TCP/${XRAY_LISTEN_PORT}"
+    summary_line_done "REALITY selected target ${REALITY_SELECTED_DOMAIN}"
+  fi
+  if enable_ss2022; then
+    summary_line_done "Shadowsocks 2022 configured on TCP/UDP ${SS2022_LISTEN_PORT}"
+  fi
+  if enable_hysteria2; then
+    summary_line_done "Hysteria 2 configured as a separate service on UDP/${HYSTERIA2_LISTEN_PORT}"
+  fi
   summary_line_done "CN SSH geo-block updater deployed with APNIC-based sets"
   summary_line_done "vnStat-backed daily/quota reporting support"
   if [[ "${ENABLE_BOT}" == "yes" ]]; then
@@ -275,39 +323,16 @@ print_final_summary_lists() {
     summary_line_done "Disposable Docker-backed network test runtime enabled"
   fi
 
-  summary_heading summary_not_done
-  echo "- Provider control-plane firewall automation"
-  echo "- Full APNIC signature trust-chain verification"
-  if [[ "${ENABLE_BOT}" != "yes" ]]; then
-    echo "- Telegram bot enablement"
-  fi
-  if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
-    echo "- Temporary admin firewall allow cleanup"
-  fi
-
-  summary_heading summary_limitations
-  echo "- CN SSH blocking is allocation-based from APNIC delegated data, not commercial geolocation"
-  echo "- REALITY suitability scoring is heuristic and should be re-tested after major network or target changes"
-  if [[ "${XRAY_LISTEN_PORT}" != "443" ]]; then
-    echo "- Public REALITY listener is not on 443, which this project treats as a higher-risk operational choice"
-  fi
-  if [[ "${ENABLE_IPV6}" == "no" ]]; then
-    echo "- Public IPv6 connectivity is intentionally disabled"
-  fi
-  if [[ "${ENABLE_DOCKER_TESTS:-no}" == "yes" ]]; then
-    echo "- The Docker test runtime uses host networking and disables Docker firewall management; do not mix it with an existing custom Docker network setup"
-  fi
-
-  summary_heading summary_manual
-  echo "- Apply matching provider-panel firewall rules for TCP/${XRAY_LISTEN_PORT} and TCP/${SSH_PORT}"
-  echo "- Verify a fresh SSH session to ${ADMIN_USER}@${SERVER_PUBLIC_ENDPOINT} on port ${SSH_PORT}"
+  echo
+  summary_heading "Manual follow-up steps:"
+  echo "- Review the provider firewall rules above."
   if [[ "${ENABLE_BOT}" == "yes" && -z "${BOT_TOKEN}" ]]; then
-    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot"
+    echo "- Populate BOT_TOKEN and optionally CHAT_ID in ${BOT_ENV_FILE}, then start neflare-bot."
   fi
   if [[ "${ENABLE_BOT}" == "yes" && -n "${BOT_TOKEN}" && -z "${CHAT_ID}" ]]; then
-    echo "- Send /start to the bot to view candidate chat ids, then send /claim ${BOT_BIND_TOKEN} from your private Telegram chat to bind the sole controller"
+    echo "- Send /start to the bot, review chat candidates, then claim the bot with /claim ${BOT_BIND_TOKEN}."
   fi
-  if [[ -n "${TEMP_ADMIN_ALLOW_V4}${TEMP_ADMIN_ALLOW_V6}" ]]; then
-    echo "- Remove temporary admin allow entries after you no longer need migration safety access"
+  if enable_hysteria2 && [[ "${HYSTERIA2_TLS_MODE}" == "acme" ]]; then
+    echo "- Make sure DNS for ${HYSTERIA2_DOMAIN} points to this server before the Hysteria 2 ACME flow runs."
   fi
 }

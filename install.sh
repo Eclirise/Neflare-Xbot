@@ -26,8 +26,12 @@ source "${SCRIPT_DIR}/lib/ipv6.sh"
 source "${SCRIPT_DIR}/lib/nftables.sh"
 # shellcheck source=lib/bbr.sh
 source "${SCRIPT_DIR}/lib/bbr.sh"
+# shellcheck source=lib/time_sync.sh
+source "${SCRIPT_DIR}/lib/time_sync.sh"
 # shellcheck source=lib/xray.sh
 source "${SCRIPT_DIR}/lib/xray.sh"
+# shellcheck source=lib/hysteria2.sh
+source "${SCRIPT_DIR}/lib/hysteria2.sh"
 # shellcheck source=lib/reality.sh
 source "${SCRIPT_DIR}/lib/reality.sh"
 # shellcheck source=lib/bot.sh
@@ -115,17 +119,19 @@ main() {
   ensure_admin_user
   configure_ssh_hardening
   save_installed_config
-  ensure_xray_installed
-  test_and_select_reality_candidate
+  ensure_xray_installed_if_needed
+  prepare_vless_reality_runtime
   configure_ipv6_mode
   prepare_temp_admin_allow_if_needed
   save_installed_config
   configure_xray_runtime
+  configure_hysteria2_runtime
   configure_nftables_firewall
   update_cn_ssh_geo_sets
   install_cn_ssh_geo_update_units
   enable_bbr_if_supported
   configure_optional_docker_tests_runtime
+  configure_time_sync_runtime
   configure_optional_bot
   save_installed_config
   run_full_verification

@@ -137,7 +137,37 @@ reality_test_single_domain() {
   python3 "${NEFLARE_RUNTIME_LIB_DIR}/reality_probe.py" --json --public-port "${XRAY_LISTEN_PORT}" "${domain}"
 }
 
+prepare_vless_reality_runtime() {
+  enable_vless_reality || return 0
+
+  XRAY_UUID="${XRAY_UUID:-}"
+  XRAY_PRIVATE_KEY="${XRAY_PRIVATE_KEY:-}"
+  XRAY_PUBLIC_KEY="${XRAY_PUBLIC_KEY:-}"
+  XRAY_SHORT_IDS="${XRAY_SHORT_IDS:-}"
+  REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-${REALITY_SELECTED_DOMAIN}}"
+  if [[ -n "${REALITY_SELECTED_DOMAIN}" && -z "${REALITY_DEST}" ]]; then
+    REALITY_DEST="${REALITY_SELECTED_DOMAIN}:443"
+  fi
+
+  generate_xray_materials_if_missing
+
+  if vless_reality_config_complete && [[ "${VLESS_REALITY_ADVANCED_EDIT}" != "yes" ]] && ! vless_reality_change_requested; then
+    info "Preserving existing VLESS+REALITY configuration without changing REALITY materials or selected target."
+    return 0
+  fi
+
+  if ! vless_reality_config_complete || [[ "${VLESS_REALITY_EDIT_TARGET}" == "yes" ]]; then
+    test_and_select_reality_candidate
+  fi
+
+  REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-${REALITY_SELECTED_DOMAIN}}"
+  if [[ -n "${REALITY_SELECTED_DOMAIN}" && -z "${REALITY_DEST}" ]]; then
+    REALITY_DEST="${REALITY_SELECTED_DOMAIN}:443"
+  fi
+}
+
 lint_current_reality_policy() {
+  enable_vless_reality || return 0
   [[ -n "${REALITY_SELECTED_DOMAIN}" ]] || die "REALITY_SELECTED_DOMAIN is not configured."
   local probe_json
   probe_json="$(mktemp)"
@@ -158,6 +188,7 @@ lint_current_reality_policy() {
 }
 
 reality_set_domain() {
+  enable_vless_reality || die "VLESS+REALITY is not enabled."
   local domain="$1"
   local force="${2:-no}"
   local probe_json

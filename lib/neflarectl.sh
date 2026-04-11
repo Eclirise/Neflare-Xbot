@@ -28,8 +28,12 @@ source "${LIB_DIR}/ipv6.sh"
 source "${LIB_DIR}/nftables.sh"
 # shellcheck source=lib/bbr.sh
 source "${LIB_DIR}/bbr.sh"
+# shellcheck source=lib/time_sync.sh
+source "${LIB_DIR}/time_sync.sh"
 # shellcheck source=lib/xray.sh
 source "${LIB_DIR}/xray.sh"
+# shellcheck source=lib/hysteria2.sh
+source "${LIB_DIR}/hysteria2.sh"
 # shellcheck source=lib/reality.sh
 source "${LIB_DIR}/reality.sh"
 # shellcheck source=lib/bot.sh
@@ -138,9 +142,23 @@ case "${cmd}" in
   print-policy)
     print_policy_summary
     ;;
+  time-sync)
+    ensure_root
+    quiet="no"
+    if [[ "${1:-}" == "--quiet" ]]; then
+      quiet="yes"
+    fi
+    calibrate_server_time
+    if [[ "${quiet}" != "yes" ]]; then
+      timedatectl status || true
+    fi
+    ;;
   restart-xray)
     ensure_root
     require_explicit_yes "${1:-}"
+    if ! xray_features_enabled; then
+      die "Xray-backed protocols are disabled."
+    fi
     validate_xray_config_file "${XRAY_CONFIG_PATH}"
     systemctl restart xray
     ;;
@@ -179,6 +197,7 @@ Commands:
   send-daily
   print-policy
   print-client
+  time-sync [--quiet]
   restart-xray --yes
   reboot --yes
   verify

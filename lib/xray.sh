@@ -126,7 +126,17 @@ ensure_xray_installed() {
   systemctl enable xray >/dev/null 2>&1 || true
 }
 
+ensure_xray_installed_if_needed() {
+  if xray_features_enabled; then
+    ensure_xray_installed
+  else
+    info "Xray-backed protocols are disabled; skipping Xray installation flow."
+  fi
+}
+
 generate_xray_materials_if_missing() {
+  enable_vless_reality || return 0
+
   if [[ -z "${XRAY_UUID}" ]]; then
     XRAY_UUID="$(xray uuid)"
   fi
@@ -151,24 +161,110 @@ generate_xray_materials_if_missing() {
   fi
 }
 
+render_xray_inbounds_json() {
+  local listen_addr="$1"
+  python3 - \
+    "${listen_addr}" \
+    "${ENABLE_VLESS_REALITY}" \
+    "${XRAY_LISTEN_PORT}" \
+    "${XRAY_UUID}" \
+    "${REALITY_DEST}" \
+    "${REALITY_SERVER_NAME}" \
+    "${XRAY_PRIVATE_KEY}" \
+    "${XRAY_SHORT_IDS}" \
+    "${ENABLE_SS2022}" \
+    "${SS2022_LISTEN_PORT}" \
+    "${SS2022_METHOD}" \
+    "${SS2022_PASSWORD}" <<'PY'
+import json
+import sys
+
+listen_addr = sys.argv[1]
+enable_vless = sys.argv[2] == "yes"
+xray_port = sys.argv[3]
+xray_uuid = sys.argv[4]
+reality_dest = sys.argv[5]
+reality_server_name = sys.argv[6]
+xray_private_key = sys.argv[7]
+xray_short_ids = [item.strip() for item in sys.argv[8].split(",") if item.strip()]
+enable_ss2022 = sys.argv[9] == "yes"
+ss_port = sys.argv[10]
+ss_method = sys.argv[11]
+ss_password = sys.argv[12]
+
+inbounds = []
+if enable_vless:
+    inbounds.append(
+        {
+            "listen": listen_addr,
+            "port": int(xray_port),
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": xray_uuid,
+                        "flow": "xtls-rprx-vision",
+                        "email": "default@neflare",
+                    }
+                ],
+                "decryption": "none",
+            },
+            "streamSettings": {
+                "network": "raw",
+                "security": "reality",
+                "realitySettings": {
+                    "show": False,
+                    "dest": reality_dest,
+                    "xver": 0,
+                    "serverNames": [item.strip() for item in reality_server_name.split(",") if item.strip()],
+                    "privateKey": xray_private_key,
+                    "shortIds": xray_short_ids,
+                },
+                "rawSettings": {
+                    "acceptProxyProtocol": False,
+                    "header": {
+                        "type": "none",
+                    },
+                },
+            },
+            "sniffing": {
+                "enabled": False,
+            },
+        }
+    )
+
+if enable_ss2022:
+    inbounds.append(
+        {
+            "listen": listen_addr,
+            "port": int(ss_port),
+            "protocol": "shadowsocks",
+            "settings": {
+                "method": ss_method,
+                "password": ss_password,
+                "network": "tcp,udp",
+            },
+            "sniffing": {
+                "enabled": False,
+            },
+        }
+    )
+
+print(json.dumps(inbounds, indent=2))
+PY
+}
+
 render_xray_config_file() {
   local destination="$1"
-  local listen_addr short_ids_json server_names_json
+  local listen_addr inbounds_json
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     listen_addr="::"
   else
     listen_addr="0.0.0.0"
   fi
-  short_ids_json="$(csv_to_json_array "${XRAY_SHORT_IDS}")"
-  server_names_json="$(csv_to_json_array "${REALITY_SERVER_NAME}")"
+  inbounds_json="$(render_xray_inbounds_json "${listen_addr}")"
   render_template_to "${NEFLARE_SOURCE_ROOT}/templates/xray-config.json.tpl" "${destination}" \
-    "XRAY_LISTEN_ADDR=${listen_addr}" \
-    "XRAY_PORT=${XRAY_LISTEN_PORT}" \
-    "XRAY_UUID=${XRAY_UUID}" \
-    "REALITY_DEST=${REALITY_DEST}" \
-    "REALITY_SERVER_NAMES_JSON=${server_names_json}" \
-    "XRAY_PRIVATE_KEY=${XRAY_PRIVATE_KEY}" \
-    "XRAY_SHORT_IDS_JSON=${short_ids_json}"
+    "XRAY_INBOUNDS_JSON=${inbounds_json}"
 }
 
 validate_xray_config_file() {
@@ -224,7 +320,16 @@ apply_xray_config() {
   success "Xray configuration applied successfully"
 }
 
+disable_xray_runtime() {
+  systemctl disable --now xray >/dev/null 2>&1 || true
+  info "No Xray-backed protocols are enabled; xray service is left installed but disabled."
+}
+
 configure_xray_runtime() {
+  if ! xray_features_enabled; then
+    disable_xray_runtime
+    return 0
+  fi
   generate_xray_materials_if_missing
   local rendered
   rendered="$(mktemp)"

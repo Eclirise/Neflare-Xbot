@@ -35,3 +35,10 @@ def reality_set(config: Config, domain: str, force: bool = False) -> str:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "reality-set failed")
     return proc.stdout.strip() or tr(config, "reality_switched", domain=domain)
+
+
+def client_snippet(config: Config) -> str:
+    proc = run_neflarectl("print-client", timeout=60)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "print-client failed")
+    return proc.stdout.strip()

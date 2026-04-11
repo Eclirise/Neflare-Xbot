@@ -42,6 +42,8 @@ def require_confirmation(
 
 
 def restart_xray(config: Config) -> str:
+    if str(config.enable_vless_reality).strip().lower() != "yes" and str(config.enable_ss2022).strip().lower() != "yes":
+        raise RuntimeError(tr(config, "xray_disabled"))
     validate = subprocess.run(
         ["xray", "run", "-test", "-c", XRAY_CONFIG_PATH],
         capture_output=True,

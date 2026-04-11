@@ -14,7 +14,7 @@ from maintenance import (
     normalize_test_id,
     queue_network_test,
 )
-from reality import reality_test
+from reality import client_snippet, reality_test
 from reports import (
     countdown_snapshot,
     countdown_text,
@@ -93,6 +93,7 @@ def help_text(config: Config) -> str:
         "",
         text_by_lang(config, "概览", "Overview"),
         f"• /status      {text_by_lang(config, '状态总览', 'status overview')}",
+        f"• /client      {text_by_lang(config, 'Clash 服务器片段', 'Clash server snippet')}",
         f"• /daily       {text_by_lang(config, '每日视图', 'daily view')}",
         f"• /quota       {text_by_lang(config, '配额详情', 'quota details')}",
         f"• /health      {text_by_lang(config, '系统状态', 'system health')}",
@@ -123,8 +124,19 @@ def help_text(config: Config) -> str:
             text_by_lang(config, "运维", "Ops"),
             f"• /update_repo {text_by_lang(config, '强制同步更新', 'force sync update')}",
             f"• /update_log  {text_by_lang(config, '更新记录', 'update history')}",
-            f"• /restart_xray {text_by_lang(config, '重启 Xray', 'restart Xray')}",
-            "",
+        ]
+    )
+    if str(config.enable_vless_reality).strip().lower() == "yes" or str(config.enable_ss2022).strip().lower() == "yes":
+        lines.extend(
+            [
+                f"• /restart_xray {text_by_lang(config, '重启 Xray', 'restart Xray')}",
+                "",
+            ]
+        )
+    else:
+        lines.append("")
+    lines.extend(
+        [
             text_by_lang(config, "绑定", "Binding"),
             f"• /chat_ids    {text_by_lang(config, '查看候选聊天', 'show candidate chats')}",
             f"• /claim <token> {text_by_lang(config, '绑定当前私聊', 'bind this private chat')}",
@@ -520,6 +532,11 @@ def handle_message(config: Config, message: Dict[str, Any]) -> str | None:
         return chat_candidates_text(config)
     if command == "/status":
         return status_text(config)
+    if command == "/client":
+        try:
+            return client_snippet(config)
+        except Exception as exc:
+            return text_by_lang(config, f"/client 失败：{exc}", f"/client failed: {exc}")
     if command == "/daily":
         return daily_text(config)
     if command == "/quota":

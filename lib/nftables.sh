@@ -49,10 +49,32 @@ ensure_empty_cn_set_file() {
   fi
 }
 
+nft_public_listener_rules() {
+  local rules=()
+  if enable_vless_reality; then
+    rules+=("tcp dport ${XRAY_LISTEN_PORT} accept comment \"VLESS+REALITY\"")
+  fi
+  if enable_ss2022; then
+    rules+=("tcp dport ${SS2022_LISTEN_PORT} accept comment \"Shadowsocks 2022 TCP\"")
+    rules+=("udp dport ${SS2022_LISTEN_PORT} accept comment \"Shadowsocks 2022 UDP\"")
+  fi
+  if enable_hysteria2; then
+    rules+=("udp dport ${HYSTERIA2_LISTEN_PORT} accept comment \"Hysteria 2\"")
+    if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
+      rules+=("tcp dport ${HYSTERIA2_ACME_HTTP_PORT} accept comment \"Hysteria 2 ACME HTTP\"")
+    fi
+  fi
+  if [[ "${#rules[@]}" -eq 0 ]]; then
+    printf '\n'
+  else
+    printf '%s\n' "${rules[@]}"
+  fi
+}
+
 render_nftables_main_file() {
   local destination="$1"
   ensure_empty_cn_set_file
-  local ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations
+  local ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations public_listener_rules
 
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     ipv6_rule=""
@@ -77,16 +99,17 @@ render_nftables_main_file() {
   fi
 
   set_declarations="$(sed 's/^/    /' "${NFTABLES_CN_SET_FILE}")"
+  public_listener_rules="$(nft_public_listener_rules | sed 's/^/        /')"
 
   render_template_to "${NEFLARE_SOURCE_ROOT}/templates/nftables.conf.tpl" "${destination}" \
     "CN_SET_DECLARATIONS=${set_declarations}" \
     "SSH_PORT=${SSH_PORT}" \
-    "XRAY_LISTEN_PORT=${XRAY_LISTEN_PORT}" \
     "IPV6_POLICY_RULE=${ipv6_rule}" \
     "IPV6_ICMP_RULE=${ipv6_icmp}" \
     "TEMP_ADMIN_ALLOW_V4_RULE=${temp_v4}" \
     "TEMP_ADMIN_ALLOW_V6_RULE=${temp_v6}" \
-    "IPV6_SSH_GEO_RULE=${ipv6_geo_rule}"
+    "IPV6_SSH_GEO_RULE=${ipv6_geo_rule}" \
+    "PUBLIC_LISTENER_RULES=${public_listener_rules}"
 }
 
 prepare_temp_admin_allow_if_needed() {

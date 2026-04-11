@@ -1,17 +1,52 @@
-# NeFlare Xray REALITY Provisioning Repo
+# NeFlare Multi-Protocol Provisioning Repo
 
-NeFlare provisions a fresh Debian 12 or Debian 13 VPS into a production-minded Xray VLESS + REALITY server with a default public listener on TCP/RAW 443 and:
+NeFlare provisions Debian 12 or Debian 13 VPS hosts into a hardened proxy host with:
 
+- VLESS + REALITY on Xray
+- optional Shadowsocks 2022 as an extra Xray inbound
+- optional Hysteria 2 as a separate service
 - hardened SSH on one persisted high port
 - nftables default-drop inbound firewall
 - mainland-China SSH geo-blocking via APNIC delegated data
-- optional Telegram bot management, enabled by default on fresh installs
-- periodic REALITY lint watch with Telegram change notifications
-- optional disposable Docker-backed network tests, enabled by default on fresh installs
+- optional Telegram bot management
+- optional disposable Docker-backed network tests
+- systemd-timer-backed time synchronization watchdog
 - vnStat-backed daily traffic and quota reporting
-- explicit validation before reload/restart
+- validation before reload/restart
 - snapshot-backed rollback for managed config changes
-- final Mihomo / Clash.Meta-compatible client snippet output
+
+## Upgrade Safety
+
+This repo now supports multiple server-side protocols, but the default upgrade path is conservative:
+
+- existing VLESS + REALITY deployments stay enabled by default
+- existing REALITY values are preserved on rerun unless you explicitly change them
+- newly added protocols stay disabled by default on upgraded hosts
+- rerunning `install.sh` does not force Hysteria 2 or Shadowsocks 2022 onto an existing VLESS-only host
+- Telegram bot secrets are preserved and do not need to be re-entered during upgrade
+
+The installer preserves the current values for these VLESS + REALITY fields unless you explicitly enter the advanced edit path or provide replacement values in config:
+
+- `XRAY_UUID`
+- `XRAY_PRIVATE_KEY`
+- `XRAY_PUBLIC_KEY`
+- `XRAY_SHORT_IDS`
+- `REALITY_SELECTED_DOMAIN`
+- `REALITY_SERVER_NAME`
+- `REALITY_DEST`
+- `XRAY_LISTEN_PORT`
+
+## Supported Layout
+
+- Xray service:
+  - VLESS + REALITY
+  - Shadowsocks 2022
+- Hysteria 2 service:
+  - separate binary
+  - separate config
+  - separate systemd unit
+
+No panel, no database, and no change to the existing Xray service model.
 
 ## Scope
 
@@ -19,36 +54,58 @@ Supported:
 
 - Debian 12 `bookworm`
 - Debian 13 `trixie`
-- fresh-host style provisioning with systemd
+- systemd-based VPS hosts
 
 Not supported:
 
-- Ubuntu or other distributions
+- Ubuntu or non-Debian distributions
 - provider control-plane firewall automation
 - full APNIC signature trust-chain verification
+- automatic Hysteria 2 ACME modes other than HTTP-01 in this repo
 
 ## Design Notes
 
-- Xray runs as `root` in this project. This is intentional so REALITY key material and config can remain root-readable without adding a second secret-distribution path. The service is still hardened with a restrictive systemd drop-in.
-- The Telegram bot service also runs as `root`. This is intentional so confirmed maintenance commands such as repo sync, service control, and verification can be executed without a separate privilege handoff path.
-- The CN SSH geo-block updater uses HTTPS transport, strict APNIC parsing, nftables validation, atomic replacement, and last-known-good rollback. It does not claim cryptographic source attestation beyond that.
-- IPv6 is an explicit installer choice. If enabled, nftables applies explicit IPv6 policy and SSH CN geo-blocking when IPv6 CN ranges are available. If disabled, the installer applies sysctl-based IPv6 disablement and reports that state clearly.
-- The installer does not ship a baked-in REALITY camouflage target list. You must provide candidate domains. Auto-recommendation means selecting the least risky acceptable candidate from your supplied set after transparent scoring and policy linting.
-- The first interactive installer prompt is the UI language selector (`English` or `中文`). The chosen language is persisted as `UI_LANG` and reused by installer summaries and bot status/report output.
-- REALITY candidate input is mandatory and must contain at least 2 distinct domains. The installer tests the supplied set and picks the best acceptable option unless you override it.
-- Apple/iCloud-related or tutorial-like camouflage patterns are discouraged operationally and are flagged explicitly rather than treated as good defaults.
-- Disposable Docker-backed tests are optional but enabled by default on fresh installs. When enabled, the installer preserves an existing Docker installation when present, otherwise installs Docker and configures it for host-network test runs with Docker firewall management disabled, so it should not be mixed with an existing custom Docker network setup.
+- Xray still runs as `root` so REALITY material remains root-readable without a second secret handoff path.
+- The Telegram bot still runs as `root` so confirmed maintenance commands can stay simple and explicit.
+- REALITY camouflage targets are still operator-supplied only. The repo does not ship baked-in defaults.
+- REALITY policy warnings for non-443 ports and discouraged targets are preserved.
+- Hysteria 2 is strict opt-in.
+- Shadowsocks 2022 is managed as an extra Xray inbound instead of a separate core.
+- Hysteria 2 ACME in this repo is implemented with HTTP-01, so enabling ACME also requires opening `TCP/80`.
+- Debian 12/13 already ships `systemd-timesyncd`, whose default poll window can grow to `34min 8s`; the NeFlare timer is only a watchdog to re-enable/check sync state instead of replacing the OS sync cadence.
 
 ## Repository Layout
 
 - `install.sh`: main installer and verifier entrypoint
 - `uninstall.sh`: conservative cleanup and optional network restore
 - `lib/`: shared shell libraries and Python helpers
-- `templates/`: rendered config templates
+- `templates/`: rendered config templates and example env
 - `systemd/`: service and timer units
-- `bot/`: modular Telegram bot implementation
+- `bot/`: Telegram bot implementation
 - `verify/`: post-install checks and helper commands
 - `old-bot.py`: legacy reference only, not used at runtime
+
+## Runtime Layout
+
+The installer copies runtime assets into:
+
+- `/usr/local/lib/neflare`
+- `/usr/local/lib/neflare-bot`
+- `/usr/local/bin/neflarectl`
+
+Managed state lives under:
+
+- `/etc/neflare`
+- `/var/lib/neflare`
+- `/var/lib/neflare-bot`
+- `/var/backups/neflare`
+
+Primary managed configs:
+
+- `/etc/neflare/neflare.env`
+- `/usr/local/etc/xray/config.json`
+- `/etc/neflare/hysteria2.yaml`
+- `/etc/neflare/bot.env`
 
 ## Installation
 
@@ -58,92 +115,107 @@ Interactive:
 sudo ./install.sh
 ```
 
-Fresh install directly from GitHub:
-
-```bash
-sudo apt-get update && sudo apt-get install -y git ca-certificates && sudo rm -rf /opt/Neflare-Xbot && sudo git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot && cd /opt/Neflare-Xbot && sudo ./install.sh
-```
-
-Fresh Debian 12/13 VPS from zero after first login or reboot:
-
-These command sets assume you are already in a `root` shell on the VPS.
-If you are not `root`, prefix the commands with `sudo`.
-
-Fresh interactive deployment:
-
-```bash
-apt-get update
-apt-get install -y git ca-certificates
-rm -rf /opt/Neflare-Xbot
-git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot
-cd /opt/Neflare-Xbot
-chmod +x install.sh
-bash install.sh
-```
-
-Fresh non-interactive deployment with a local config file:
-
-```bash
-apt-get update
-apt-get install -y git ca-certificates
-rm -rf /opt/Neflare-Xbot
-git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot
-cp /opt/Neflare-Xbot/templates/neflare.env.example /root/neflare.env
-cd /opt/Neflare-Xbot
-chmod +x install.sh
-# edit /root/neflare.env before running the next line
-bash install.sh --config /root/neflare.env --non-interactive
-```
-
 Non-interactive:
 
 ```bash
 sudo ./install.sh --config /root/neflare.env --non-interactive
 ```
 
-The installer will:
+Fresh install directly from GitHub:
 
-1. validate Debian version
-2. collect or load configuration
-3. create a snapshot under `/var/backups/neflare`
-4. install required packages
-5. deploy runtime assets to `/usr/local/lib/neflare`, `/usr/local/lib/neflare-bot`, and `/usr/local/bin/neflarectl`
-6. create or reuse the admin user and install the provided public key
-7. perform a two-phase SSH cutover before disabling root/password login
-8. install or explicitly upgrade Xray through the official install flow
-9. generate REALITY UUID, X25519 keys, and short IDs
-10. test and score REALITY camouflage candidates
-11. lint REALITY policy choices and warn or fail conservatively
-12. render and validate Xray config before restart
-13. apply explicit IPv4/IPv6 nftables rules
-14. install and run the CN SSH geo-block updater
-15. schedule weekly CN SSH geo-block refreshes
-16. enable `tcp_bbr` with `fq` plus low-risk proxy-oriented sysctl tuning and install `/root/rollback-proxy-bbr.sh`
-17. optionally install and configure Docker for disposable network tests
-18. optionally deploy the Telegram bot
-19. run verification and print summary plus client YAML
+```bash
+sudo apt-get update
+sudo apt-get install -y git ca-certificates
+sudo rm -rf /opt/Neflare-Xbot
+sudo git clone --depth=1 -b main https://github.com/Eclirise/Neflare-Xbot.git /opt/Neflare-Xbot
+cd /opt/Neflare-Xbot
+sudo ./install.sh
+```
+
+## Interactive Menu Flow
+
+The interactive installer now uses grouped sections:
+
+1. System / host settings
+2. Protocol selection
+3. Per-protocol settings
+4. Telegram bot settings
+5. Final summary / confirmation
+
+Prompt behavior on rerun is existing-value-aware:
+
+- non-secret values show the current value as the default
+- sensitive values show markers such as `[configured]` or `[preserve existing]`
+- pressing Enter preserves existing secrets
+- bot secrets are not printed in plaintext
+- REALITY materials are preserved unless you open the advanced VLESS + REALITY edit path
 
 ## Configuration
 
 Use `templates/neflare.env.example` as a starting point.
 
-Important keys:
+Core flags:
+
+- `ENABLE_VLESS_REALITY=yes`
+- `ENABLE_HYSTERIA2=no`
+- `ENABLE_SS2022=no`
+- `ENABLE_BOT=yes`
+- `ENABLE_DOCKER_TESTS=yes`
+- `ENABLE_TIME_SYNC=yes`
+
+System / host:
 
 - `ADMIN_USER`
 - `ADMIN_PUBLIC_KEY`
-- `UI_LANG`
 - `SSH_PORT`
 - `ENABLE_IPV6`
-- `ENABLE_BOT`
-- `ENABLE_DOCKER_TESTS`
-- `BOT_LOG_RETENTION_DAYS`
-- `BOT_LOG_MAX_BYTES`
+- `ENABLE_TIME_SYNC`
 - `REPO_SYNC_URL`
 - `REPO_SYNC_BRANCH`
 - `REPO_SYNC_DIR`
-- `XRAY_INSTALL_SCRIPT_URL`
-- `XRAY_INSTALL_SCRIPT_SHA256`
-- `XRAY_INSTALL_VERIFY_SHA256`
+- `SERVER_PUBLIC_ENDPOINT`
+
+Xray / REALITY:
+
+- `XRAY_LISTEN_PORT`
+- `REALITY_CANDIDATES`
+- `REALITY_AUTO_RECOMMEND`
+- `REALITY_SELECTED_DOMAIN`
+- `REALITY_SERVER_NAME`
+- `REALITY_DEST`
+- `XRAY_UUID`
+- `XRAY_PRIVATE_KEY`
+- `XRAY_PUBLIC_KEY`
+- `XRAY_SHORT_IDS`
+- `ALLOW_NONSTANDARD_REALITY_PORT`
+- `ALLOW_DISCOURAGED_REALITY_TARGET`
+
+Hysteria 2:
+
+- `HYSTERIA2_VERSION`
+- `HYSTERIA2_DOMAIN`
+- `HYSTERIA2_LISTEN_PORT`
+- `HYSTERIA2_TLS_MODE=acme|file`
+- `HYSTERIA2_ACME_EMAIL`
+- `HYSTERIA2_ACME_DIR`
+- `HYSTERIA2_ACME_CHALLENGE_TYPE=http`
+- `HYSTERIA2_ACME_HTTP_PORT=80`
+- `HYSTERIA2_TLS_CERT_FILE`
+- `HYSTERIA2_TLS_KEY_FILE`
+- `HYSTERIA2_AUTH_PASSWORD`
+- `HYSTERIA2_MASQUERADE_TYPE=proxy|none`
+- `HYSTERIA2_MASQUERADE_URL`
+- `HYSTERIA2_MASQUERADE_REWRITE_HOST`
+- `HYSTERIA2_MASQUERADE_INSECURE`
+
+Shadowsocks 2022:
+
+- `SS2022_LISTEN_PORT`
+- `SS2022_METHOD`
+- `SS2022_PASSWORD`
+
+Telegram bot:
+
 - `BOT_TOKEN`
 - `CHAT_ID`
 - `BOT_BIND_TOKEN`
@@ -151,33 +223,45 @@ Important keys:
 - `REPORT_TZ`
 - `QUOTA_MONTHLY_CAP_GB`
 - `QUOTA_RESET_DAY_UTC`
-- `REALITY_CANDIDATES`
-- `REALITY_AUTO_RECOMMEND`
-- `XRAY_LISTEN_PORT`
-- `ALLOW_NONSTANDARD_REALITY_PORT`
-- `ALLOW_DISCOURAGED_REALITY_TARGET`
-- `SERVER_PUBLIC_ENDPOINT`
+- `BOT_LOG_RETENTION_DAYS`
+- `BOT_LOG_MAX_BYTES`
 
-Installed runtime config is stored in:
+## Protocol Notes
 
-- `/etc/neflare/neflare.env`
-- `/etc/neflare/bot.env`
+### VLESS + REALITY
 
-Both are root-readable only.
+- still managed by Xray
+- still uses operator-supplied REALITY candidate domains
+- still warns on non-443 public listener ports
+- still preserves conservative REALITY lint behavior
+- existing upgraded hosts keep current REALITY settings by default
 
-REALITY policy notes:
+### Hysteria 2
 
-- `REALITY_CANDIDATES` is required. The repo does not provide baked-in camouflage defaults.
-- `REALITY_CANDIDATES` must contain at least 2 distinct domains supplied by the operator.
-- `XRAY_LISTEN_PORT=443` is the default and recommended public listener.
-- If you set a non-443 public listener, also set `ALLOW_NONSTANDARD_REALITY_PORT=yes` and expect a strong warning.
-- If you intentionally want a discouraged but still technically compatible target, set `ALLOW_DISCOURAGED_REALITY_TARGET=yes` and review the policy warnings carefully.
-- `ENABLE_BOT=yes` is the default for fresh installs. Set it to `no` if you do not want Telegram bot management deployed.
-- `ENABLE_DOCKER_TESTS=yes` is the default for fresh installs. Set it to `no` if you do not want the disposable `/test` runtime installed and configured.
-- `REPORT_TZ=Asia/Shanghai` is the default for fresh installs.
-- `BOT_LOG_RETENTION_DAYS=14` is the default. Set it to `0` to disable age-based pruning of bot-managed JSON logs.
-- `BOT_LOG_MAX_BYTES=65536` is the default. Set it to `0` to disable size-based pruning of bot-managed JSON logs.
-- `REPO_SYNC_URL=https://github.com/Eclirise/Neflare-Xbot.git`, `REPO_SYNC_BRANCH=main`, and `REPO_SYNC_DIR=/opt/Neflare-Xbot` are the default repo-sync settings used by `neflarectl repo-sync` and Telegram `/update_repo`.
+- separate service: `neflare-hysteria2`
+- separate config: `/etc/neflare/hysteria2.yaml`
+- default disabled
+- requires only its own variables when `ENABLE_HYSTERIA2=yes`
+- can coexist with VLESS + REALITY as:
+  - VLESS + REALITY on `TCP/443`
+  - Hysteria 2 on `UDP/443`
+- repo-supported TLS modes:
+  - `acme`
+  - `file`
+- repo-supported masquerade modes:
+  - `proxy`
+  - `none`
+
+If you use `HYSTERIA2_TLS_MODE=acme`, this repo configures HTTP-01 and expects `TCP/80` to be reachable.
+
+### Shadowsocks 2022
+
+- extra Xray inbound
+- default disabled
+- configured directly from installer or env
+- managed on a single listener for `TCP/UDP`
+- does not modify existing VLESS + REALITY values when enabled later
+- should be used with synchronized system time because SS2022 replay protection depends on clock sanity
 
 ## Verification
 
@@ -193,11 +277,13 @@ Targeted checks:
 sudo verify/check-ssh.sh
 sudo verify/check-firewall.sh
 sudo verify/check-xray.sh
+sudo verify/check-hysteria2.sh
+sudo verify/check-time-sync.sh
 sudo verify/check-bbr.sh
 sudo verify/check-bot.sh
 ```
 
-Reality test and client snippet:
+REALITY test and Clash Meta client snippet:
 
 ```bash
 verify/reality-test.sh example.com
@@ -205,72 +291,41 @@ verify/reality-lint.sh
 verify/print-client-snippet.sh
 ```
 
-## Routine Maintenance
-
-Repository code update:
-
-1. pull or sync the repo normally
-2. rerun `sudo ./install.sh` or `sudo ./install.sh --config ... --non-interactive`
-3. review verification output
-
-One-command repo sync from the configured GitHub checkout:
-
-```bash
-sudo neflarectl repo-sync --yes
-```
-
-Explicit Xray-core upgrade:
-
-```bash
-sudo ./install.sh --upgrade-xray
-```
-
-This is intentionally separate from routine repo updates.
-The upstream Xray install helper URL is still pinned by this repo to a specific `Xray-install` commit by default, so repo-controlled installer behavior remains explicit.
-SHA-256 enforcement for that helper is now disabled by default (`XRAY_INSTALL_VERIFY_SHA256=no`), and existing installs using the old pinned default policy are migrated to `no` on the next installer run.
-If you want to re-enable checksum enforcement, set `XRAY_INSTALL_VERIFY_SHA256=yes` in your config and keep `XRAY_INSTALL_SCRIPT_SHA256` aligned with the exact helper script URL.
-
-The CN SSH geo-block updater runs weekly by systemd timer. You can force an immediate refresh with:
-
-```bash
-sudo neflarectl update-cn-ssh-geo
-```
-
-Useful runtime commands:
-
-```bash
-sudo neflarectl verify
-sudo neflarectl reality-test example.com
-sudo neflarectl reality-set example.com
-sudo neflarectl reality-lint
-sudo neflarectl reality-lint-watch
-sudo neflarectl lint-log
-sudo neflarectl tests
-sudo neflarectl test-run unlock_media
-sudo neflarectl test-log
-sudo neflarectl repo-log
-sudo neflarectl repo-sync --yes
-sudo neflarectl print-policy
-sudo neflarectl print-client
-sudo neflarectl quota
-sudo neflarectl quota-set 120 380 2026-05-01T00:00:00Z
-sudo neflarectl quota-clear
-```
-
 ## Telegram Bot
 
-The bot is optional and uses long polling for simplicity and reliability on small VPS deployments.
+The bot is optional and still uses long polling.
 
 Installer behavior:
 
-- if you enable bot support, the installer prompts for `BOT_TOKEN`
-- `CHAT_ID` is optional during install
-- if `BOT_TOKEN` is set and `CHAT_ID` is left blank, the bot starts unbound, records candidate chats, and the installer generates a one-time `BOT_BIND_TOKEN`
-- send `/start` to the bot to see the currently known chat ids, then send `/claim <BOT_BIND_TOKEN>` from your chosen private chat to bind that Telegram account as the sole controller
-- once `CHAT_ID` is bound, only that chat can issue bot commands
-- once bound, every bot restart/startup sends a concise online notice to the authorized chat and continues daily notifications at the configured `REPORT_TIME` / `REPORT_TZ`
+- existing `BOT_TOKEN` and `CHAT_ID` are preserved by default
+- bot secrets are shown as configured/not-configured markers instead of plaintext
+- if `BOT_TOKEN` is set and `CHAT_ID` is blank, the installer preserves or generates `BOT_BIND_TOKEN`
+- reruns do not force bot secrets to be re-entered
 
-Supported commands:
+`/status` now includes:
+
+- enabled protocols
+- listener summary including SSH
+- xray service status
+- hysteria2 service status when enabled
+- time sync status
+
+Example listener summary:
+
+```text
+Enabled protocols: VLESS+REALITY, Hysteria 2
+Listener summary:
+- SSH: TCP 45222
+- VLESS+REALITY: TCP 443
+- Hysteria 2: UDP 443
+- SS2022: disabled
+Service status:
+- xray: active
+- hysteria2: active
+- time sync: enabled=yes, synchronized=yes
+```
+
+Supported commands remain intentionally limited:
 
 - `/start`
 - `/help`
@@ -281,6 +336,7 @@ Supported commands:
 - `/countdown_set <YYYY-MM-DD> <HH:MM> <message>`
 - `/countdown_clear`
 - `/status`
+- `/client`
 - `/daily`
 - `/quota`
 - `/health`
@@ -297,61 +353,111 @@ Supported commands:
 - `/restart_xray`
 - `/reboot`
 
-The bot no longer installs the old timer-driven `reality-lint` watcher by default. REALITY checks remain available on demand through `neflarectl reality-lint` and the Telegram REALITY commands, but the bot avoids background alerting/noisy periodic scans.
+## Routine Maintenance
 
-Docker-backed test notes:
-
-- `/tests` lists the supported disposable checks, but only when `ENABLE_DOCKER_TESTS=yes`.
-- `/test <name>` queues a background job, so the bot stays responsive while the test runs.
-- The job runs inside a one-shot Docker container, fetches the upstream test script at runtime, uses a common non-interactive shell environment plus official script arguments where available, and sends the cleaned result back to Telegram after completion.
-- When `ENABLE_DOCKER_TESTS=yes`, the installer preserves an existing Docker installation when present, otherwise installs Docker and configures it for this feature with `host` networking plus Docker firewall management disabled.
-- On Debian 13 `trixie`, the installer also installs `docker-cli` when needed because `docker.io` may provide `dockerd` without the `docker` client binary.
-- The runtime uses `--rm`, a `none` Docker log driver, explicit labeled-container pruning, and image cleanup when the base image did not already exist on the host.
-- Bot-side formatting strips common Docker pull noise, ANSI color escapes, and generic menu/prompt noise before returning long test output to Telegram.
-- Bot-managed JSON logs are pruned automatically by age and size, and only compact metadata is kept locally; the detailed test output is returned to Telegram instead of being stored in full on disk.
-- Cleanup is still best-effort for Docker resources created by this feature; it reduces leftover state substantially, but does not claim forensic zero-trace removal from daemon logs or journal history.
-
-Repo sync notes:
-
-- `/update_repo` queues a background root-owned repo sync job and reruns `./install.sh --config /etc/neflare/neflare.env --non-interactive` from the configured checkout.
-- the sync now force-aligns the checkout to `origin/<REPO_SYNC_BRANCH>` and overwrites local checkout changes in the configured repo-sync directory before rerunning `install.sh`
-- The default repo-sync target is this GitHub repository on branch `main` under `/opt/Neflare-Xbot`.
-- `/update_log` shows recent repo sync attempts with timestamps, exit codes, and resulting commit ids.
-
-If `BOT_TOKEN` is empty during install, the bot files and units are deployed but the services are not started. After populating `BOT_TOKEN` and optionally `CHAT_ID`, start them with:
+Repository code update:
 
 ```bash
-sudo systemctl enable --now neflare-bot
+cd /opt/Neflare-Xbot
+sudo git pull --ff-only
+sudo ./install.sh
 ```
 
-Automatic chat binding:
-
-- leave `CHAT_ID` blank during install
-- start the bot service
-- open chats with the bot as needed so it can record candidate chat ids
-- send `/start` to inspect the currently seen chat ids
-- send `/claim <BOT_BIND_TOKEN>` from your chosen private chat
-- that private chat becomes the sole authorized controller
-
-Manual override binding:
+Routine non-interactive rerun from saved config:
 
 ```bash
-sudo neflarectl list-chat-candidates
-sudo neflarectl bind-chat <chat_id>
-sudo systemctl restart neflare-bot
+cd /opt/Neflare-Xbot
+sudo ./install.sh --config /etc/neflare/neflare.env --non-interactive
 ```
 
-`/reality_test` and `/reality_set` return:
+Explicit Xray core upgrade:
 
-- compatibility result
-- latency/stability result
-- policy warning level
-- discouraged pattern matches
-- whether the target is Apple/iCloud-related
+```bash
+sudo ./install.sh --upgrade-xray
+```
+
+This is intentionally separate from routine repo updates.
+
+Useful runtime commands:
+
+```bash
+sudo neflarectl verify
+sudo neflarectl status
+sudo neflarectl daily
+sudo neflarectl quota
+sudo neflarectl print-policy
+sudo neflarectl print-client
+sudo neflarectl time-sync
+sudo neflarectl reality-test example.com
+sudo neflarectl reality-set example.com
+sudo neflarectl repo-sync --yes
+```
+
+## Safe Upgrade for Existing VLESS + REALITY Hosts
+
+Existing VLESS + REALITY-only hosts can safely update with:
+
+```bash
+cd /opt/Neflare-Xbot
+sudo git pull --ff-only
+sudo ./install.sh
+```
+
+Expected default behavior:
+
+- `ENABLE_VLESS_REALITY` stays `yes`
+- `ENABLE_HYSTERIA2` stays `no` unless you enable it
+- `ENABLE_SS2022` stays `no` unless you enable it
+- `ENABLE_TIME_SYNC` defaults to `yes` so SS2022 and other replay-sensitive protocols can rely on a synchronized clock
+- current REALITY UUID, keys, short IDs, domain, destination, and listener port stay unchanged
+- existing bot secrets stay unchanged
+
+## Enable Hysteria 2 Later
+
+Edit `/etc/neflare/neflare.env` and set at least:
+
+```bash
+ENABLE_HYSTERIA2=yes
+HYSTERIA2_DOMAIN=hy2.example.com
+HYSTERIA2_LISTEN_PORT=443
+HYSTERIA2_TLS_MODE=acme
+HYSTERIA2_ACME_EMAIL=admin@example.com
+HYSTERIA2_AUTH_PASSWORD='replace-with-your-secret'
+HYSTERIA2_MASQUERADE_TYPE=proxy
+HYSTERIA2_MASQUERADE_URL=https://news.ycombinator.com/
+```
+
+Then rerun:
+
+```bash
+sudo ./install.sh --config /etc/neflare/neflare.env --non-interactive
+```
+
+If you use ACME mode, open `TCP/80` and make sure the domain resolves to the server first.
+
+## Enable Shadowsocks 2022 Later
+
+Edit `/etc/neflare/neflare.env` and set at least:
+
+```bash
+ENABLE_SS2022=yes
+SS2022_LISTEN_PORT=40010
+SS2022_METHOD=2022-blake3-aes-256-gcm
+SS2022_PASSWORD='replace-with-your-secret'
+ENABLE_TIME_SYNC=yes
+```
+
+Then rerun:
+
+```bash
+sudo ./install.sh --config /etc/neflare/neflare.env --non-interactive
+```
+
+For best interoperability, use a proper SS2022 key such as `openssl rand -base64 32` and keep the host clock synchronized.
 
 ## Rollback
 
-Managed config changes are snapshot-backed and validated before reload/restart. The installer stores the latest snapshot id in:
+Managed config changes are snapshot-backed. The latest snapshot id is stored in:
 
 - `/etc/neflare/last-snapshot-id`
 
@@ -366,3 +472,11 @@ Network restore from a specific snapshot:
 ```bash
 sudo ./uninstall.sh --restore-network --snapshot 20260326T120000Z
 ```
+
+For service-level rollback after a bad rerun:
+
+1. inspect the current `/etc/neflare/neflare.env`
+2. revert the changed protocol flags or settings
+3. rerun `sudo ./install.sh --config /etc/neflare/neflare.env --non-interactive`
+
+The installer validates managed configs before restart where the underlying service supports it, and restores the previous managed state if Xray or Hysteria 2 restart fails.

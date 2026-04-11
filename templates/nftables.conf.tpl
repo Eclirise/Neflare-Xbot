@@ -23,7 +23,7 @@ __CN_SET_DECLARATIONS__
         __IPV6_SSH_GEO_RULE__
 
         tcp dport __SSH_PORT__ accept comment "SSH"
-        tcp dport __XRAY_LISTEN_PORT__ accept comment "Xray REALITY"
+__PUBLIC_LISTENER_RULES__
     }
 
     chain forward {

@@ -28,7 +28,10 @@ def run_text(*args: str) -> str:
 
 
 def run_status(*args: str) -> str:
-    proc = subprocess.run(args, capture_output=True, text=True, check=False)
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return ""
     return proc.stdout.strip()
 
 
@@ -297,6 +300,54 @@ def xray_status() -> Tuple[str, str]:
     return active, version[0] if version else "unknown"
 
 
+def hysteria2_status() -> str:
+    return run_status("systemctl", "is-active", "neflare-hysteria2") or "inactive"
+
+
+def time_sync_status() -> Tuple[str, str]:
+    enabled = run_status("timedatectl", "show", "-p", "NTP", "--value") or "unknown"
+    synchronized = (
+        run_status("timedatectl", "show", "-p", "SystemClockSynchronized", "--value")
+        or run_status("timedatectl", "show", "-p", "NTPSynchronized", "--value")
+        or "unknown"
+    )
+    return enabled, synchronized
+
+
+def is_enabled(value: str) -> bool:
+    return str(value).strip().lower() == "yes"
+
+
+def enabled_protocol_names(config: Config) -> list[str]:
+    names: list[str] = []
+    if is_enabled(config.enable_vless_reality):
+        names.append("VLESS+REALITY")
+    if is_enabled(config.enable_hysteria2):
+        names.append("Hysteria 2")
+    if is_enabled(config.enable_ss2022):
+        names.append("Shadowsocks 2022")
+    return names
+
+
+def listener_summary_lines(config: Config) -> list[str]:
+    unset_text = text_by_lang(config, "未设置", "unset")
+    disabled_text = text_by_lang(config, "未启用", "disabled")
+    lines = [f"- SSH: TCP {config.ssh_port or unset_text}"]
+    if is_enabled(config.enable_vless_reality):
+        lines.append(f"- VLESS+REALITY: TCP {config.xray_listen_port}")
+    else:
+        lines.append(f"- VLESS+REALITY: {disabled_text}")
+    if is_enabled(config.enable_hysteria2):
+        lines.append(f"- Hysteria 2: UDP {config.hysteria2_listen_port}")
+    else:
+        lines.append(f"- Hysteria 2: {disabled_text}")
+    if is_enabled(config.enable_ss2022):
+        lines.append(f"- SS2022: TCP/UDP {config.ss2022_listen_port}")
+    else:
+        lines.append(f"- SS2022: {disabled_text}")
+    return lines
+
+
 def bbr_status() -> str:
     return run_status("sysctl", "-n", "net.ipv4.tcp_congestion_control") or "unknown"
 
@@ -481,11 +532,62 @@ def status_text(config: Config) -> str:
     quota = quota_snapshot(config)
     countdown = countdown_snapshot(config)
     xray_active, xray_version = xray_status()
+    hy2_active = hysteria2_status()
+    clock_enabled, clock_synchronized = time_sync_status()
     sys = health()
     next_reset_local = format_dt_local(config, parse_utc(quota["next_reset_utc"]))
+    enabled_protocols = ", ".join(enabled_protocol_names(config)) or text_by_lang(config, "无", "none")
+    listener_lines = listener_summary_lines(config)
+    xray_overview = (
+        f"{xray_active}｜{xray_version}"
+        if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)
+        else "未启用"
+    )
+    xray_overview_en = (
+        f"{xray_active} | {xray_version}"
+        if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)
+        else "disabled"
+    )
+    reality_line = (
+        f"{config.xray_listen_port} → {config.reality_selected_domain or '未设置'}"
+        if is_enabled(config.enable_vless_reality)
+        else "未启用"
+    )
+    reality_line_en = (
+        f"{config.xray_listen_port} -> {config.reality_selected_domain or 'unset'}"
+        if is_enabled(config.enable_vless_reality)
+        else "disabled"
+    )
+    xray_service_line = (
+        f"- xray: {xray_active}"
+        if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)
+        else text_by_lang(config, "- xray: 未启用", "- xray: disabled")
+    )
+    hy2_service_line = (
+        f"- hysteria2: {hy2_active}"
+        if is_enabled(config.enable_hysteria2)
+        else text_by_lang(config, "- hysteria2: 未启用", "- hysteria2: disabled")
+    )
+    clock_line = text_by_lang(
+        config,
+        f"- 时间同步: NTP={clock_enabled}，已同步={clock_synchronized}",
+        f"- time sync: enabled={clock_enabled}, synchronized={clock_synchronized}",
+    )
     lines = []
     lines.append(text_by_lang(config, "📊 状态总览", "📊 Status"))
     lines.append("")
+    lines.extend(
+        [
+            text_by_lang(config, f"启用的协议：{enabled_protocols}", f"Enabled protocols: {enabled_protocols}"),
+            text_by_lang(config, "监听摘要：", "Listener summary:"),
+            *listener_lines,
+            text_by_lang(config, "服务状态：", "Service status:"),
+            xray_service_line,
+            hy2_service_line,
+            clock_line if is_enabled(config.enable_time_sync) else text_by_lang(config, "- 时间同步: 未启用", "- time sync: disabled"),
+            "",
+        ]
+    )
     if countdown.get("active"):
         if is_zh(config):
             status_label = "已到达" if countdown["due"] else f"剩余 {fmt_days(config, countdown['remaining_days'])}"
@@ -513,8 +615,8 @@ def status_text(config: Config) -> str:
         lines.extend(
             [
                 "概览",
-                f"• Xray：{xray_active}｜{xray_version}",
-                f"• REALITY：{config.xray_listen_port} → {config.reality_selected_domain or '未设置'}",
+                f"• Xray：{xray_overview}",
+                f"• REALITY：{reality_line}",
                 f"• 月配额剩余：{fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else '不限'}",
                 f"• 日均总量建议：{fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else '不限'}",
                 f"• 日均单向建议：{fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else '不限'}",
@@ -548,8 +650,8 @@ def status_text(config: Config) -> str:
     lines.extend(
         [
             "Overview",
-            f"• Xray: {xray_active} | {xray_version}",
-            f"• REALITY: {config.xray_listen_port} -> {config.reality_selected_domain or 'unset'}",
+            f"• Xray: {xray_overview_en}",
+            f"• REALITY: {reality_line_en}",
             f"• Quota remaining: {fmt_gb(quota['remain_gb']) if not math.isinf(quota['remain_gb']) else 'unlimited'}",
             f"• Suggested daily total: {fmt_gb(quota['avg_day_gb']) if not math.isinf(quota['avg_day_gb']) else 'unlimited'}",
             f"• Suggested one-way daily: {fmt_gb(quota['avg_day_half_gb']) if not math.isinf(quota['avg_day_half_gb']) else 'unlimited'}",

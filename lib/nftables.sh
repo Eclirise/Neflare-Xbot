@@ -64,17 +64,27 @@ nft_public_listener_rules() {
       rules+=("tcp dport ${HYSTERIA2_ACME_HTTP_PORT} accept comment \"Hysteria 2 ACME HTTP\"")
     fi
   fi
-  if [[ "${#rules[@]}" -eq 0 ]]; then
-    printf '\n'
-  else
+  if [[ "${#rules[@]}" -gt 0 ]]; then
     printf '%s\n' "${rules[@]}"
   fi
+}
+
+nft_input_allow_rules() {
+  local rules=(
+    "tcp dport ${SSH_PORT} accept comment \"SSH\""
+  )
+  local listener_rule
+  while IFS= read -r listener_rule; do
+    [[ -n "${listener_rule}" ]] || continue
+    rules+=("${listener_rule}")
+  done < <(nft_public_listener_rules)
+  printf '%s\n' "${rules[@]}"
 }
 
 render_nftables_main_file() {
   local destination="$1"
   ensure_empty_cn_set_file
-  local ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations public_listener_rules
+  local ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations input_allow_rules
 
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     ipv6_rule=""
@@ -99,7 +109,7 @@ render_nftables_main_file() {
   fi
 
   set_declarations="$(sed 's/^/    /' "${NFTABLES_CN_SET_FILE}")"
-  public_listener_rules="$(nft_public_listener_rules | sed 's/^/        /')"
+  input_allow_rules="$(nft_input_allow_rules | sed 's/^/        /')"
 
   render_template_to "${NEFLARE_SOURCE_ROOT}/templates/nftables.conf.tpl" "${destination}" \
     "CN_SET_DECLARATIONS=${set_declarations}" \
@@ -109,7 +119,7 @@ render_nftables_main_file() {
     "TEMP_ADMIN_ALLOW_V4_RULE=${temp_v4}" \
     "TEMP_ADMIN_ALLOW_V6_RULE=${temp_v6}" \
     "IPV6_SSH_GEO_RULE=${ipv6_geo_rule}" \
-    "PUBLIC_LISTENER_RULES=${public_listener_rules}"
+    "INPUT_ALLOW_RULES=${input_allow_rules}"
 }
 
 prepare_temp_admin_allow_if_needed() {
@@ -134,90 +144,193 @@ validate_nftables_config_file() {
 nft_ruleset_text_allows_dport() {
   local protocol="$1"
   local port="$2"
-  local ruleset
-  ruleset="$(nft list ruleset 2>/dev/null)" || return 1
-  grep -Eq "(^|[[:space:]])${protocol}[[:space:]]+dport[[:space:]]+${port}([[:space:]]+[^[:space:]]+)*[[:space:]]+accept([[:space:]]|$)" <<<"${ruleset}"
+  local family="${3:-ip}"
+  local chain_text line normalized verdict policy
+  chain_text="$(nft list chain inet neflare input 2>/dev/null)" || return 1
+  policy="drop"
+  while IFS= read -r line; do
+    normalized="$(normalize_nft_rule_text "${line}")"
+    [[ -n "${normalized}" ]] || continue
+    if [[ "${normalized}" == type\ filter\ hook\ input* ]]; then
+      if [[ "${normalized}" =~ policy[[:space:]]+([a-z]+) ]]; then
+        policy="${BASH_REMATCH[1]}"
+      fi
+      continue
+    fi
+    verdict="$(nft_rule_verdict_text "${normalized}" || true)"
+    [[ -n "${verdict}" ]] || continue
+    nft_rule_matches_inbound_listener_text "${line}" "${protocol}" "${port}" "${family}" || continue
+    [[ "${verdict}" == "accept" ]]
+    return
+  done <<<"${chain_text}"
+  [[ "${policy}" == "accept" ]]
 }
 
 nft_ruleset_allows_dport() {
   local protocol="$1"
   local port="$2"
-  local payload=""
-  payload="$(nft -j list ruleset 2>/dev/null || true)"
-  if [[ -n "${payload}" ]] && printf '%s' "${payload}" | python3 - "${protocol}" "${port}" <<'PY'
-import json
-import sys
+  nft_ruleset_text_allows_dport "${protocol}" "${port}" ip
+}
 
-target_proto = sys.argv[1].strip().lower()
-target_port = int(sys.argv[2])
+normalize_nft_rule_text() {
+  local line="$1"
+  line="${line%% comment *}"
+  line="${line//\{/ }"
+  line="${line//\}/ }"
+  line="${line//;/ }"
+  line="${line//,/ }"
+  line="$(tr -s '[:space:]' ' ' <<<"${line}")"
+  line="$(trim "${line}")"
+  printf '%s\n' "${line}"
+}
 
-try:
-    payload = json.load(sys.stdin)
-except Exception:
-    raise SystemExit(1)
-
-
-def port_matches(value):
-    if isinstance(value, int):
-        return value == target_port
-    if isinstance(value, str):
-        try:
-            return int(value) == target_port
-        except Exception:
-            return False
-    if isinstance(value, list):
-        return any(port_matches(item) for item in value)
-    if isinstance(value, dict):
-        for key in ("set", "range", "concat"):
-            if key in value and port_matches(value[key]):
-                return True
-        if "elem" in value:
-            return port_matches(value["elem"])
-    return False
-
-
-def expr_is_accept(expr):
-    if not isinstance(expr, dict):
-        return False
-    if "accept" in expr:
-        return True
-    verdict = expr.get("verdict")
-    return isinstance(verdict, dict) and "accept" in verdict
-
-
-def expr_matches_dport(expr):
-    if not isinstance(expr, dict):
-        return False
-    match = expr.get("match")
-    if not isinstance(match, dict):
-        return False
-    left = match.get("left")
-    if not isinstance(left, dict):
-        return False
-    payload = left.get("payload")
-    if not isinstance(payload, dict):
-        return False
-    protocol = str(payload.get("protocol", "")).strip().lower()
-    field = str(payload.get("field", "")).strip().lower()
-    if field != "dport" or protocol not in {target_proto, "th"}:
-        return False
-    return port_matches(match.get("right"))
-
-
-for item in payload.get("nftables", []):
-    rule = item.get("rule")
-    if not isinstance(rule, dict):
-        continue
-    exprs = rule.get("expr", [])
-    if any(expr_matches_dport(expr) for expr in exprs) and any(expr_is_accept(expr) for expr in exprs):
-        raise SystemExit(0)
-
-raise SystemExit(1)
-PY
-  then
+nft_rule_verdict_text() {
+  local line="$1"
+  if [[ "${line}" =~ (^|[[:space:]])accept([[:space:]]|$) ]]; then
+    printf 'accept\n'
     return 0
   fi
-  nft_ruleset_text_allows_dport "${protocol}" "${port}"
+  if [[ "${line}" =~ (^|[[:space:]])drop([[:space:]]|$) ]]; then
+    printf 'drop\n'
+    return 0
+  fi
+  if [[ "${line}" =~ (^|[[:space:]])reject([[:space:]]|$) ]]; then
+    printf 'reject\n'
+    return 0
+  fi
+  return 1
+}
+
+nft_rule_matches_inbound_listener_text() {
+  local raw_line="$1"
+  local protocol="$2"
+  local port="$3"
+  local family="${4:-ip}"
+  local line
+  line="$(normalize_nft_rule_text "${raw_line}")"
+  [[ -n "${line}" ]] || return 1
+
+  case "${line}" in
+    chain\ *|table\ *|type\ filter\ hook\ input*|'{'|'}') return 1 ;;
+  esac
+
+  if [[ "${line}" == *'iif "lo"'* || "${line}" == *"iif lo"* ]]; then
+    return 1
+  fi
+
+  if [[ "${line}" == *"ct state"* ]]; then
+    if [[ "${line}" == *"invalid"* ]]; then
+      return 1
+    fi
+    if [[ "${line}" == *"established"* || "${line}" == *"related"* ]]; then
+      [[ "${line}" == *"new"* ]] || return 1
+    fi
+  fi
+
+  if [[ "${family}" == "ip" ]]; then
+    [[ "${line}" == *"meta nfproto ipv6"* ]] && return 1
+    [[ "${line}" == ip6\ * || "${line}" == *" ip6 "* ]] && return 1
+    [[ "${line}" == *"icmpv6"* ]] && return 1
+  else
+    [[ "${line}" == *"meta nfproto ipv4"* ]] && return 1
+    if [[ "${line}" == ip\ * || "${line}" == *" ip saddr "* || "${line}" == *" ip daddr "* || "${line}" == *" ip protocol "* ]]; then
+      return 1
+    fi
+    [[ "${line}" == *" icmp type "* || "${line}" == ip\ protocol\ icmp* ]] && return 1
+  fi
+
+  case "${protocol}" in
+    tcp)
+      [[ "${line}" == *"udp dport"* || "${line}" == *"udp sport"* ]] && return 1
+      [[ "${line}" == *"ip protocol icmp"* || "${line}" == *"icmpv6 type"* ]] && return 1
+      ;;
+    udp)
+      [[ "${line}" == *"tcp dport"* || "${line}" == *"tcp sport"* ]] && return 1
+      [[ "${line}" == *"ip protocol icmp"* || "${line}" == *"icmpv6 type"* ]] && return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if [[ "${line}" == *"dport"* ]]; then
+    [[ "${line}" =~ (^|[[:space:]])${protocol}[[:space:]]+dport[[:space:]]+${port}([[:space:]]|$) ]] || return 1
+  fi
+
+  return 0
+}
+
+tcp_inbound_namespace_probe_supported() {
+  command_exists ip && command_exists python3 && command_exists timeout
+}
+
+probe_tcp_listener_via_namespace() {
+  local port="$1"
+  local timeout_seconds="${2:-5}"
+  local suffix host_if ns_if ns_name status
+  tcp_inbound_namespace_probe_supported || return 1
+
+  suffix="$(printf '%05d' "$((RANDOM % 100000))")"
+  host_if="nfh${suffix}"
+  ns_if="nfn${suffix}"
+  ns_name="neflare-probe-${suffix}"
+  status=1
+
+  if ip netns add "${ns_name}" >/dev/null 2>&1 \
+    && ip link add "${host_if}" type veth peer name "${ns_if}" >/dev/null 2>&1 \
+    && ip link set "${ns_if}" netns "${ns_name}" >/dev/null 2>&1 \
+    && ip addr add 198.18.0.1/30 dev "${host_if}" >/dev/null 2>&1 \
+    && ip link set "${host_if}" up >/dev/null 2>&1 \
+    && ip netns exec "${ns_name}" ip link set lo up >/dev/null 2>&1 \
+    && ip netns exec "${ns_name}" ip addr add 198.18.0.2/30 dev "${ns_if}" >/dev/null 2>&1 \
+    && ip netns exec "${ns_name}" ip link set "${ns_if}" up >/dev/null 2>&1; then
+    if timeout "${timeout_seconds}" ip netns exec "${ns_name}" python3 - "198.18.0.1" "${port}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(3.0)
+try:
+    sock.connect((host, port))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+PY
+    then
+      status=0
+    fi
+  fi
+
+  ip link delete "${host_if}" >/dev/null 2>&1 || true
+  ip netns del "${ns_name}" >/dev/null 2>&1 || true
+  return "${status}"
+}
+
+nft_enabled_listener_rules_effective() {
+  nft_ruleset_allows_dport tcp "${SSH_PORT}" || return 1
+  if enable_vless_reality; then
+    nft_ruleset_allows_dport tcp "${XRAY_LISTEN_PORT}" || return 1
+  fi
+  if enable_ss2022; then
+    nft_ruleset_allows_dport tcp "${SS2022_LISTEN_PORT}" || return 1
+    nft_ruleset_allows_dport udp "${SS2022_LISTEN_PORT}" || return 1
+    if declare -F xray_tcp_listener_present >/dev/null 2>&1 \
+      && xray_tcp_listener_present "${SS2022_LISTEN_PORT}" \
+      && tcp_inbound_namespace_probe_supported; then
+      probe_tcp_listener_via_namespace "${SS2022_LISTEN_PORT}" || return 1
+    fi
+  fi
+  if enable_hysteria2; then
+    nft_ruleset_allows_dport udp "${HYSTERIA2_LISTEN_PORT}" || return 1
+    if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
+      nft_ruleset_allows_dport tcp "${HYSTERIA2_ACME_HTTP_PORT}" || return 1
+    fi
+  fi
+  return 0
 }
 
 apply_nftables_file() {
@@ -255,6 +368,18 @@ apply_nftables_file() {
   fi
   if ! systemctl enable --now nftables >/dev/null 2>&1; then
     warn "Failed to enable/start nftables after applying rules; restoring previous configuration"
+    if [[ -s "${previous}" ]]; then
+      cp -a "${previous}" "${NFTABLES_MAIN_FILE}"
+      nft -f "${NFTABLES_MAIN_FILE}" || true
+    else
+      rm -f "${NFTABLES_MAIN_FILE}"
+    fi
+    systemctl enable --now nftables >/dev/null 2>&1 || true
+    rm -f "${previous}"
+    return 1
+  fi
+  if ! nft_enabled_listener_rules_effective; then
+    warn "Applied nftables rules did not effectively allow the enabled listener set; restoring previous configuration"
     if [[ -s "${previous}" ]]; then
       cp -a "${previous}" "${NFTABLES_MAIN_FILE}"
       nft -f "${NFTABLES_MAIN_FILE}" || true

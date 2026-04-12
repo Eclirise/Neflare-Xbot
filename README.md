@@ -283,11 +283,18 @@ Targeted checks:
 sudo verify/check-ssh.sh
 sudo verify/check-firewall.sh
 sudo verify/check-xray.sh
+sudo verify/check-ss2022-firewall.sh
 sudo verify/check-hysteria2.sh
 sudo verify/check-time-sync.sh
 sudo verify/check-bbr.sh
 sudo verify/check-bot.sh
 ```
+
+The SS2022 firewall regression check verifies all of the following on the live host:
+
+- Xray is listening on the managed SS2022 TCP/UDP port
+- a disposable local "external" TCP probe can complete the inbound handshake to that port
+- `neflarectl verify` still passes end-to-end
 
 REALITY test and Clash Meta client snippet:
 

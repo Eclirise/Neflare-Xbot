@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: lint pycompile verify print-client print-policy reality-lint lint-log tests test-log upgrade-xray
+.PHONY: lint pycompile verify print-client print-policy reality-lint lint-log tests test-log ss2022-regression upgrade-xray
 
 lint:
 	@for file in $$(find . -type f -name '*.sh'); do bash -n "$$file"; done
@@ -28,6 +28,9 @@ tests:
 
 test-log:
 	@sudo /usr/local/bin/neflarectl test-log
+
+ss2022-regression:
+	@sudo verify/check-ss2022-firewall.sh
 
 upgrade-xray:
 	@sudo ./install.sh --upgrade-xray

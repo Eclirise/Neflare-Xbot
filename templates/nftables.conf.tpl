@@ -22,8 +22,10 @@ __CN_SET_DECLARATIONS__
         ip saddr @cn_ssh_v4 tcp dport __SSH_PORT__ drop comment "SSH CN IPv4 drop"
         __IPV6_SSH_GEO_RULE__
 
-        tcp dport __SSH_PORT__ accept comment "SSH"
-__PUBLIC_LISTENER_RULES__
+        # Listener allow rules must stay above any terminal drop/reject logic.
+__INPUT_ALLOW_RULES__
+
+        # The base-chain policy drop remains the terminal catch-all.
     }
 
     chain forward {

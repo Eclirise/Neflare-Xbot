@@ -22,18 +22,18 @@ verify_firewall_state() {
   systemctl is-active --quiet neflare-cn-ssh-geo-update.timer || die "CN SSH geo-block update timer is not active."
   local ruleset
   ruleset="$(nft list ruleset)" || die "Failed to read active nftables ruleset."
-  nft_ruleset_allows_dport tcp "${SSH_PORT}" || die "nftables does not allow SSH port ${SSH_PORT}."
+  nft_ruleset_allows_dport tcp "${SSH_PORT}" || die "nftables does not effectively allow SSH port ${SSH_PORT}."
   if enable_vless_reality; then
-    nft_ruleset_allows_dport tcp "${XRAY_LISTEN_PORT}" || die "nftables does not allow VLESS+REALITY port ${XRAY_LISTEN_PORT}."
+    nft_ruleset_allows_dport tcp "${XRAY_LISTEN_PORT}" || die "nftables does not effectively allow VLESS+REALITY port ${XRAY_LISTEN_PORT}."
   fi
   if enable_ss2022; then
-    nft_ruleset_allows_dport tcp "${SS2022_LISTEN_PORT}" || die "nftables does not allow Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT}."
-    nft_ruleset_allows_dport udp "${SS2022_LISTEN_PORT}" || die "nftables does not allow Shadowsocks 2022 UDP/${SS2022_LISTEN_PORT}."
+    nft_ruleset_allows_dport tcp "${SS2022_LISTEN_PORT}" || die "nftables does not effectively allow Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT}."
+    nft_ruleset_allows_dport udp "${SS2022_LISTEN_PORT}" || die "nftables does not effectively allow Shadowsocks 2022 UDP/${SS2022_LISTEN_PORT}."
   fi
   if enable_hysteria2; then
-    nft_ruleset_allows_dport udp "${HYSTERIA2_LISTEN_PORT}" || die "nftables does not allow Hysteria 2 UDP/${HYSTERIA2_LISTEN_PORT}."
+    nft_ruleset_allows_dport udp "${HYSTERIA2_LISTEN_PORT}" || die "nftables does not effectively allow Hysteria 2 UDP/${HYSTERIA2_LISTEN_PORT}."
     if [[ "${HYSTERIA2_TLS_MODE}" == "acme" && "${HYSTERIA2_ACME_CHALLENGE_TYPE}" == "http" ]]; then
-      nft_ruleset_allows_dport tcp "${HYSTERIA2_ACME_HTTP_PORT}" || die "nftables does not allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
+      nft_ruleset_allows_dport tcp "${HYSTERIA2_ACME_HTTP_PORT}" || die "nftables does not effectively allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
     fi
   fi
   local drop_line accept_line
@@ -77,6 +77,14 @@ verify_xray_state() {
     return 0
   fi
   assert_xray_runtime_ready "${XRAY_CONFIG_PATH}" yes
+}
+
+verify_ss2022_reachability_state() {
+  if ! enable_ss2022; then
+    return 0
+  fi
+  tcp_inbound_namespace_probe_supported || die "Shadowsocks 2022 TCP reachability probing requires ip, timeout, and python3."
+  probe_tcp_listener_via_namespace "${SS2022_LISTEN_PORT}" || die "Shadowsocks 2022 TCP/${SS2022_LISTEN_PORT} did not complete an inbound TCP handshake through nftables."
 }
 
 verify_hysteria2_state() {
@@ -155,6 +163,7 @@ run_full_verification() {
   verify_ipv6_state
   verify_time_sync_state
   verify_xray_state
+  verify_ss2022_reachability_state
   verify_hysteria2_state
   verify_reality_policy_state
   verify_bbr_state

@@ -87,11 +87,13 @@ warn_if_checkout_dirty() {
   if [[ ! -d "${NEFLARE_SOURCE_ROOT}/.git" ]]; then
     return 0
   fi
-  local branch upstream porcelain
+  local branch upstream porcelain rerun_config rerun_cmd
   porcelain="$(git -C "${NEFLARE_SOURCE_ROOT}" status --porcelain=v1 2>/dev/null || true)"
   [[ -n "${porcelain}" ]] || return 0
   branch="$(git -C "${NEFLARE_SOURCE_ROOT}" branch --show-current 2>/dev/null || printf 'unknown')"
   upstream="$(git -C "${NEFLARE_SOURCE_ROOT}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || printf 'origin/%s' "${branch}")"
+  rerun_config="${CONFIG_INPUT_FILE:-${NEFLARE_CONFIG_FILE}}"
+  rerun_cmd="bash ./install.sh --config ${rerun_config} --non-interactive"
   warn "Detected a dirty git checkout in ${NEFLARE_SOURCE_ROOT} on branch ${branch} (upstream ${upstream})."
   warn "Local checkout changes can block 'git pull --ff-only' and may be overwritten by a force-sync update."
   while IFS= read -r line; do
@@ -99,6 +101,7 @@ warn_if_checkout_dirty() {
     warn "Dirty file: ${line}"
   done <<<"${porcelain}"
   warn "Run './safe-update.sh --check' to review and back up local hotfixes before syncing the checkout."
+  warn "When you are ready to overwrite the checkout, run './safe-update.sh --sync' and then '${rerun_cmd}'."
 }
 
 main() {
@@ -129,20 +132,20 @@ main() {
     return 0
   fi
 
+  DEFER_INSTALLED_CONFIG_SAVE=1
+  DEFER_INSTALLED_CONFIG_SAVE_NOTIFIED=0
   collect_install_config
   detect_current_admin_source
-  save_installed_config
   create_install_snapshot
   install_base_packages
   install_runtime_assets
+  configure_time_sync_runtime
   ensure_admin_user
   configure_ssh_hardening
-  save_installed_config
   ensure_xray_installed_if_needed
   prepare_vless_reality_runtime
   configure_ipv6_mode
   prepare_temp_admin_allow_if_needed
-  save_installed_config
   configure_xray_runtime
   configure_hysteria2_runtime
   configure_nftables_firewall
@@ -150,10 +153,9 @@ main() {
   install_cn_ssh_geo_update_units
   enable_bbr_if_supported
   configure_optional_docker_tests_runtime
-  configure_time_sync_runtime
   configure_optional_bot
-  save_installed_config
   run_full_verification
+  flush_deferred_installed_config
 
   echo
   print_cloud_firewall_guidance

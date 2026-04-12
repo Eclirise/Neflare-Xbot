@@ -131,10 +131,20 @@ validate_nftables_config_file() {
   nft -c -f "${path}"
 }
 
+nft_ruleset_text_allows_dport() {
+  local protocol="$1"
+  local port="$2"
+  local ruleset
+  ruleset="$(nft list ruleset 2>/dev/null)" || return 1
+  grep -Eq "(^|[[:space:]])${protocol}[[:space:]]+dport[[:space:]]+${port}([[:space:]]+[^[:space:]]+)*[[:space:]]+accept([[:space:]]|$)" <<<"${ruleset}"
+}
+
 nft_ruleset_allows_dport() {
   local protocol="$1"
   local port="$2"
-  nft -j list ruleset | python3 - "${protocol}" "${port}" <<'PY'
+  local payload=""
+  payload="$(nft -j list ruleset 2>/dev/null || true)"
+  if [[ -n "${payload}" ]] && printf '%s' "${payload}" | python3 - "${protocol}" "${port}" <<'PY'
 import json
 import sys
 
@@ -204,6 +214,10 @@ for item in payload.get("nftables", []):
 
 raise SystemExit(1)
 PY
+  then
+    return 0
+  fi
+  nft_ruleset_text_allows_dport "${protocol}" "${port}"
 }
 
 apply_nftables_file() {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import calendar
 import json
 import math
+import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Tuple
@@ -301,6 +302,26 @@ def xray_status() -> Tuple[str, str]:
     return active, version[0] if version else "unknown"
 
 
+def xray_config_validation_error() -> str:
+    if not os.path.isfile(XRAY_CONFIG_PATH):
+        return f"{XRAY_CONFIG_PATH} is missing"
+    try:
+        proc = subprocess.run(
+            ["xray", "run", "-test", "-c", XRAY_CONFIG_PATH],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "xray binary is not installed"
+    except Exception as exc:
+        return str(exc)
+    if proc.returncode == 0:
+        return ""
+    return (proc.stderr or proc.stdout or "xray config validation failed").strip()
+
+
 def load_xray_config() -> Dict[str, Any]:
     try:
         with open(XRAY_CONFIG_PATH, "r", encoding="utf-8") as handle:
@@ -322,7 +343,21 @@ def inbound_networks(inbound: Dict[str, Any]) -> set[str]:
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
-def xray_runtime_state(config: Config) -> Dict[str, bool]:
+def listener_present(protocol: str, port: str) -> bool:
+    port_text = str(port or "").strip()
+    if not port_text:
+        return False
+    args = ["ss", "-H", "-ltn", f"( sport = :{port_text} )"] if protocol == "tcp" else ["ss", "-H", "-lun", f"( sport = :{port_text} )"]
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=15, check=False)
+    except Exception:
+        return False
+    return proc.returncode == 0 and bool((proc.stdout or "").strip())
+
+
+def xray_runtime_state(config: Config) -> Dict[str, Any]:
+    expected_vless = is_enabled(config.enable_vless_reality)
+    expected_ss2022 = is_enabled(config.enable_ss2022)
     payload = load_xray_config()
     inbounds = payload.get("inbounds", [])
     if not isinstance(inbounds, list):
@@ -346,10 +381,14 @@ def xray_runtime_state(config: Config) -> Dict[str, bool]:
                 rendered_ss2022 = True
 
     return {
-        "expected_vless": is_enabled(config.enable_vless_reality),
-        "expected_ss2022": is_enabled(config.enable_ss2022),
+        "expected_vless": expected_vless,
+        "expected_ss2022": expected_ss2022,
         "rendered_vless": rendered_vless,
         "rendered_ss2022": rendered_ss2022,
+        "listening_vless_tcp": rendered_vless and listener_present("tcp", config.xray_listen_port),
+        "listening_ss2022_tcp": rendered_ss2022 and listener_present("tcp", config.ss2022_listen_port),
+        "listening_ss2022_udp": rendered_ss2022 and listener_present("udp", config.ss2022_listen_port),
+        "validation_error": xray_config_validation_error() if expected_vless or expected_ss2022 else "",
     }
 
 
@@ -371,14 +410,20 @@ def is_enabled(value: str) -> bool:
     return str(value).strip().lower() == "yes"
 
 
-def enabled_protocol_names(config: Config) -> list[str]:
+def enabled_protocol_names(config: Config, runtime_state: Dict[str, Any]) -> list[str]:
     names: list[str] = []
-    if is_enabled(config.enable_vless_reality):
-        names.append("VLESS+REALITY")
+    if runtime_state.get("expected_vless"):
+        if runtime_state.get("rendered_vless") and runtime_state.get("listening_vless_tcp"):
+            names.append("VLESS+REALITY")
+        else:
+            names.append("VLESS+REALITY (configured, not listening)")
     if is_enabled(config.enable_hysteria2):
         names.append("Hysteria 2")
-    if is_enabled(config.enable_ss2022):
-        names.append("Shadowsocks 2022")
+    if runtime_state.get("expected_ss2022"):
+        if runtime_state.get("rendered_ss2022") and runtime_state.get("listening_ss2022_tcp") and runtime_state.get("listening_ss2022_udp"):
+            names.append("Shadowsocks 2022")
+        else:
+            names.append("Shadowsocks 2022 (configured, not listening)")
     return names
 
 
@@ -386,9 +431,12 @@ def listener_summary_lines(config: Config, runtime_state: Dict[str, bool]) -> li
     unset_text = text_by_lang(config, "未设置", "unset")
     disabled_text = text_by_lang(config, "未启用", "disabled")
     mismatch_text = text_by_lang(config, "env 已启用但 Xray 运行配置缺少 inbound", "enabled in env, but missing from xray runtime config")
+    not_listening_prefix = text_by_lang(config, "已写入 Xray 但未监听", "configured in xray, but not listening on")
     lines = [f"- SSH: TCP {config.ssh_port or unset_text}"]
-    if runtime_state.get("expected_vless") and runtime_state.get("rendered_vless"):
+    if runtime_state.get("expected_vless") and runtime_state.get("rendered_vless") and runtime_state.get("listening_vless_tcp"):
         lines.append(f"- VLESS+REALITY: TCP {config.xray_listen_port}")
+    elif runtime_state.get("expected_vless") and runtime_state.get("rendered_vless"):
+        lines.append(f"- VLESS+REALITY: {not_listening_prefix} TCP {config.xray_listen_port}")
     elif runtime_state.get("expected_vless"):
         lines.append(f"- VLESS+REALITY: {mismatch_text}")
     else:
@@ -397,8 +445,16 @@ def listener_summary_lines(config: Config, runtime_state: Dict[str, bool]) -> li
         lines.append(f"- Hysteria 2: UDP {config.hysteria2_listen_port}")
     else:
         lines.append(f"- Hysteria 2: {disabled_text}")
-    if runtime_state.get("expected_ss2022") and runtime_state.get("rendered_ss2022"):
+    if runtime_state.get("expected_ss2022") and runtime_state.get("rendered_ss2022") and runtime_state.get("listening_ss2022_tcp") and runtime_state.get("listening_ss2022_udp"):
         lines.append(f"- SS2022: TCP/UDP {config.ss2022_listen_port}")
+    elif runtime_state.get("expected_ss2022") and runtime_state.get("rendered_ss2022"):
+        missing = []
+        if not runtime_state.get("listening_ss2022_tcp"):
+            missing.append("TCP")
+        if not runtime_state.get("listening_ss2022_udp"):
+            missing.append("UDP")
+        missing_ports = "/".join(missing) or "TCP/UDP"
+        lines.append(f"- SS2022: {not_listening_prefix} {missing_ports} {config.ss2022_listen_port}")
     elif runtime_state.get("expected_ss2022"):
         lines.append(f"- SS2022: {mismatch_text}")
     else:
@@ -595,12 +651,29 @@ def status_text(config: Config) -> str:
     clock_enabled, clock_synchronized = time_sync_status()
     sys = health()
     next_reset_local = format_dt_local(config, parse_utc(quota["next_reset_utc"]))
-    enabled_protocols = ", ".join(enabled_protocol_names(config)) or text_by_lang(config, "无", "none")
-    listener_lines = listener_summary_lines(config, runtime_state)
+    validation_error = str(runtime_state.get("validation_error", "") or "").strip()
     runtime_mismatch = (
         (runtime_state.get("expected_vless") and not runtime_state.get("rendered_vless"))
         or (runtime_state.get("expected_ss2022") and not runtime_state.get("rendered_ss2022"))
     )
+    if validation_error:
+        raise RuntimeError(
+            text_by_lang(
+                config,
+                f"Xray 运行配置校验失败：{validation_error}",
+                f"Xray runtime config validation failed: {validation_error}",
+            )
+        )
+    if runtime_mismatch:
+        raise RuntimeError(
+            text_by_lang(
+                config,
+                f"Xray 运行配置与 {config.neflare_config_file} 不一致，请重新运行 bash ./install.sh --config {config.neflare_config_file} --non-interactive",
+                f"Xray runtime config is out of sync with {config.neflare_config_file}; rerun bash ./install.sh --config {config.neflare_config_file} --non-interactive",
+            )
+        )
+    enabled_protocols = ", ".join(enabled_protocol_names(config, runtime_state)) or text_by_lang(config, "无", "none")
+    listener_lines = listener_summary_lines(config, runtime_state)
     xray_overview = (
         f"{xray_active}｜{xray_version}"
         if is_enabled(config.enable_vless_reality) or is_enabled(config.enable_ss2022)

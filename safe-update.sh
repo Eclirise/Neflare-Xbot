@@ -13,6 +13,10 @@ Usage: ./safe-update.sh [--check|--sync]
 EOF
 }
 
+rerun_command() {
+  printf 'sudo bash ./install.sh --config /etc/neflare/neflare.env --non-interactive\n'
+}
+
 pick_backup_root() {
   local preferred="${NEFLARE_UPDATE_BACKUP_DIR:-/var/backups/neflare/repo-hotfixes}"
   if mkdir -p "${preferred}" >/dev/null 2>&1; then
@@ -116,7 +120,7 @@ force_sync() {
 
   echo "Checkout is now aligned to ${upstream}."
   echo "Next step:"
-  echo "  sudo ./install.sh --config /etc/neflare/neflare.env --non-interactive"
+  echo "  $(rerun_command)"
 }
 
 mode="check"
@@ -146,8 +150,9 @@ if [[ "${mode}" == "check" ]]; then
     echo "Creating a backup bundle for the dirty checkout..."
     create_backup_bundle
     echo
-    echo "When you are ready to overwrite the checkout with the upstream branch, run:"
+    echo "Safe next steps:"
     echo "  sudo ./safe-update.sh --sync"
+    echo "  $(rerun_command)"
     exit 2
   fi
   echo
@@ -155,6 +160,8 @@ if [[ "${mode}" == "check" ]]; then
   echo "  sudo git pull --ff-only"
   echo "or"
   echo "  sudo ./safe-update.sh --sync"
+  echo "Then rerun:"
+  echo "  $(rerun_command)"
   exit 0
 fi
 

@@ -131,8 +131,12 @@ def main() -> int:
         TelegramAPI(config.bot_token).send_text(config.chat_id, daily_text(config))
         return 0
     if args.status_text:
-        print(status_text(config))
-        return 0
+        try:
+            print(status_text(config))
+            return 0
+        except Exception as exc:
+            print(f"status failed: {exc}", file=sys.stderr)
+            return 1
     if args.daily_text:
         print(daily_text(config))
         return 0

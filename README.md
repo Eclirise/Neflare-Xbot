@@ -36,6 +36,12 @@ The installer preserves the current values for these VLESS + REALITY fields unle
 - `REALITY_DEST`
 - `XRAY_LISTEN_PORT`
 
+Rerun safety behavior:
+
+- the installer now defers writing `/etc/neflare/neflare.env` until the managed runtime passes verification
+- `ENABLE_SS2022=yes` will not be persisted as the installed state unless `/usr/local/etc/xray/config.json` validates, contains the SS2022 inbound, and Xray is listening on the managed TCP/UDP port
+- `ENABLE_TIME_SYNC=yes` reruns install or refresh the `neflare-time-sync` unit files before the Xray/firewall stages and ensure the timer is enabled
+
 ## Supported Layout
 
 - Xray service:
@@ -361,7 +367,7 @@ Repository code update:
 cd /opt/Neflare-Xbot
 sudo ./safe-update.sh --check
 sudo ./safe-update.sh --sync
-sudo ./install.sh
+sudo bash ./install.sh --config /etc/neflare/neflare.env --non-interactive
 ```
 
 Routine non-interactive rerun from saved config:
@@ -410,6 +416,7 @@ If the checkout contains local hotfixes, `safe-update.sh` will:
 - list the modified files
 - save tracked diffs and untracked-file inventory under `/var/backups/neflare/repo-hotfixes/` when writable
 - make the overwrite step explicit before realigning the checkout to the upstream branch
+- print the exact rerun command to execute after the checkout is realigned
 
 Expected default behavior:
 

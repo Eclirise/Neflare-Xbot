@@ -1040,7 +1040,7 @@ resolve_network_defaults() {
   REPORT_TZ="${REPORT_TZ:-$(detect_default_timezone)}"
 }
 
-save_installed_config() {
+write_installed_config_file() {
   mkdir_root_only "${NEFLARE_CONFIG_DIR}"
   write_env_file "${NEFLARE_CONFIG_FILE}" \
     "CONFIG_VERSION=4" \
@@ -1110,6 +1110,24 @@ save_installed_config() {
     "CREATED_ADMIN_USER=${CREATED_ADMIN_USER}"
   rm -f "${NEFLARE_BOT_STATE_DIR}/runtime.env"
   success "Saved configuration to ${NEFLARE_CONFIG_FILE}"
+}
+
+save_installed_config() {
+  if bool_is_true "${DEFER_INSTALLED_CONFIG_SAVE:-0}"; then
+    if ! bool_is_true "${DEFER_INSTALLED_CONFIG_SAVE_NOTIFIED:-0}"; then
+      info "Deferring updates to ${NEFLARE_CONFIG_FILE} until the managed runtime passes verification."
+      DEFER_INSTALLED_CONFIG_SAVE_NOTIFIED=1
+    fi
+    return 0
+  fi
+  write_installed_config_file
+}
+
+flush_deferred_installed_config() {
+  local deferred="${DEFER_INSTALLED_CONFIG_SAVE:-0}"
+  DEFER_INSTALLED_CONFIG_SAVE=0
+  write_installed_config_file
+  DEFER_INSTALLED_CONFIG_SAVE="${deferred}"
 }
 
 collect_install_config() {

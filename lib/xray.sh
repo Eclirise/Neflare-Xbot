@@ -320,13 +320,45 @@ assert_xray_runtime_matches_declared_state() {
   fi
 }
 
-xray_listeners_ready() {
+xray_tcp_listener_present() {
+  local port="$1"
+  ss -H -ltn "( sport = :${port} )" | grep -q .
+}
+
+xray_udp_listener_present() {
+  local port="$1"
+  ss -H -lun "( sport = :${port} )" | grep -q .
+}
+
+assert_xray_runtime_listeners_ready() {
   if enable_vless_reality; then
-    ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || return 1
+    xray_tcp_listener_present "${XRAY_LISTEN_PORT}" || die "No listener found on TCP/${XRAY_LISTEN_PORT} for VLESS+REALITY."
   fi
   if enable_ss2022; then
-    ss -H -ltn "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || return 1
-    ss -H -lun "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || return 1
+    xray_tcp_listener_present "${SS2022_LISTEN_PORT}" || die "No listener found on TCP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
+    xray_udp_listener_present "${SS2022_LISTEN_PORT}" || die "No listener found on UDP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
+  fi
+}
+
+assert_xray_runtime_ready() {
+  local path="${1:-${XRAY_CONFIG_PATH}}"
+  local require_enabled="${2:-no}"
+  validate_xray_config_file "${path}" >/dev/null || die "Xray configuration validation failed for ${path}."
+  assert_xray_runtime_matches_declared_state "${path}"
+  systemctl is-active --quiet xray || die "xray service is not active."
+  if bool_is_true "${require_enabled}"; then
+    systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
+  fi
+  assert_xray_runtime_listeners_ready
+}
+
+xray_listeners_ready() {
+  if enable_vless_reality; then
+    xray_tcp_listener_present "${XRAY_LISTEN_PORT}" || return 1
+  fi
+  if enable_ss2022; then
+    xray_tcp_listener_present "${SS2022_LISTEN_PORT}" || return 1
+    xray_udp_listener_present "${SS2022_LISTEN_PORT}" || return 1
   fi
   return 0
 }

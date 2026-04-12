@@ -76,17 +76,7 @@ verify_xray_state() {
   if ! xray_features_enabled; then
     return 0
   fi
-  validate_xray_config_file "${XRAY_CONFIG_PATH}" >/dev/null || die "Xray configuration validation failed for ${XRAY_CONFIG_PATH}."
-  assert_xray_runtime_matches_declared_state "${XRAY_CONFIG_PATH}"
-  systemctl is-active --quiet xray || die "xray service is not active."
-  systemctl is-enabled --quiet xray || die "xray service is not enabled at boot."
-  if enable_vless_reality; then
-    ss -H -ltn "( sport = :${XRAY_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${XRAY_LISTEN_PORT} for VLESS+REALITY."
-  fi
-  if enable_ss2022; then
-    ss -H -ltn "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || die "No listener found on TCP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
-    ss -H -lun "( sport = :${SS2022_LISTEN_PORT} )" | grep -q . || die "No listener found on UDP/${SS2022_LISTEN_PORT} for Shadowsocks 2022."
-  fi
+  assert_xray_runtime_ready "${XRAY_CONFIG_PATH}" yes
 }
 
 verify_hysteria2_state() {
@@ -199,7 +189,7 @@ print_client_yaml_snippet() {
     return 0
   fi
   if xray_features_enabled; then
-    assert_xray_runtime_matches_declared_state "${XRAY_CONFIG_PATH}"
+    assert_xray_runtime_ready "${XRAY_CONFIG_PATH}" no
   fi
 
   cat <<EOF

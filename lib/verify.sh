@@ -9,9 +9,12 @@ verify_ssh_state() {
   local active_port root_login password_auth sshd_effective
   sshd_effective="$(sshd -T)" || die "Failed to read effective sshd configuration."
   active_port="$(awk '/^port / {print $2; exit}' <<<"${sshd_effective}")"
+  [[ "${active_port}" == "${SSH_PORT}" ]] || die "sshd active port '${active_port}' does not match configured SSH_PORT '${SSH_PORT}'."
+  if ! manage_ssh_hardening; then
+    return 0
+  fi
   root_login="$(awk '/^permitrootlogin / {print $2; exit}' <<<"${sshd_effective}")"
   password_auth="$(awk '/^passwordauthentication / {print $2; exit}' <<<"${sshd_effective}")"
-  [[ "${active_port}" == "${SSH_PORT}" ]] || die "sshd active port '${active_port}' does not match configured SSH_PORT '${SSH_PORT}'."
   [[ "${root_login}" == "no" ]] || die "PermitRootLogin is not disabled."
   [[ "${password_auth}" == "no" ]] || die "PasswordAuthentication is not disabled."
 }
@@ -19,7 +22,9 @@ verify_ssh_state() {
 verify_firewall_state() {
   validate_nftables_config_file "${NFTABLES_MAIN_FILE}" >/dev/null || die "nftables configuration validation failed for ${NFTABLES_MAIN_FILE}."
   systemctl is-active --quiet nftables || die "nftables service is not active."
-  systemctl is-active --quiet neflare-cn-ssh-geo-update.timer || die "CN SSH geo-block update timer is not active."
+  if enable_ssh_geo_block; then
+    systemctl is-active --quiet neflare-cn-ssh-geo-update.timer || die "CN SSH geo-block update timer is not active."
+  fi
   local ruleset
   ruleset="$(nft list ruleset)" || die "Failed to read active nftables ruleset."
   nft_ruleset_allows_dport tcp "${SSH_PORT}" || die "nftables does not effectively allow SSH port ${SSH_PORT}."
@@ -36,11 +41,13 @@ verify_firewall_state() {
       nft_ruleset_allows_dport tcp "${HYSTERIA2_ACME_HTTP_PORT}" || die "nftables does not effectively allow Hysteria 2 ACME TCP/${HYSTERIA2_ACME_HTTP_PORT}."
     fi
   fi
-  local drop_line accept_line
-  drop_line="$(grep -n -m1 "SSH CN IPv4 drop" <<<"${ruleset}" | cut -d: -f1 || true)"
-  accept_line="$(grep -n -m1 'SSH"' <<<"${ruleset}" | cut -d: -f1 || true)"
-  if [[ -n "${drop_line}" && -n "${accept_line}" ]]; then
-    (( drop_line < accept_line )) || die "nftables rule ordering allows SSH before CN geo-drop."
+  if enable_ssh_geo_block; then
+    local drop_line accept_line
+    drop_line="$(grep -n -m1 "SSH CN IPv4 drop" <<<"${ruleset}" | cut -d: -f1 || true)"
+    accept_line="$(grep -n -m1 'SSH"' <<<"${ruleset}" | cut -d: -f1 || true)"
+    if [[ -n "${drop_line}" && -n "${accept_line}" ]]; then
+      (( drop_line < accept_line )) || die "nftables rule ordering allows SSH before CN geo-drop."
+    fi
   fi
 }
 
@@ -176,7 +183,11 @@ print_cloud_firewall_guidance() {
   echo "Provider firewall manual rules:"
   echo "- Inbound default: DROP"
   echo "- Outbound default: ACCEPT"
-  echo "- Allow TCP/${SSH_PORT} from your admin source(s)"
+  if manage_ssh_hardening; then
+    echo "- Allow TCP/${SSH_PORT} from your admin source(s)"
+  else
+    echo "- Allow TCP/${SSH_PORT} according to your existing SSH access policy"
+  fi
   if enable_vless_reality; then
     echo "- Allow TCP/${XRAY_LISTEN_PORT} from anywhere for VLESS+REALITY"
   fi
@@ -318,7 +329,11 @@ summary_line_done() {
 print_final_summary_lists() {
   summary_heading "Done:"
   summary_line_done "Debian ${DISTRO_VERSION_ID} support with explicit Debian-only detection"
-  summary_line_done "Hardened SSH on persisted port ${SSH_PORT} with root/password login disabled"
+  if manage_ssh_hardening; then
+    summary_line_done "Hardened SSH on persisted port ${SSH_PORT} with root/password login disabled"
+  else
+    summary_line_done "Left existing SSH configuration unchanged on port ${SSH_PORT}"
+  fi
   summary_line_done "nftables default-drop inbound policy with only the enabled listener set allowed"
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     summary_line_done "Explicit IPv6 firewall policy enabled"
@@ -339,7 +354,11 @@ print_final_summary_lists() {
   if enable_hysteria2; then
     summary_line_done "Hysteria 2 configured as a separate service on UDP/${HYSTERIA2_LISTEN_PORT}"
   fi
-  summary_line_done "CN SSH geo-block updater deployed with APNIC-based sets"
+  if enable_ssh_geo_block; then
+    summary_line_done "CN SSH geo-block updater deployed with APNIC-based sets"
+  else
+    summary_line_done "CN SSH geo-block updater disabled by configuration"
+  fi
   summary_line_done "vnStat-backed daily/quota reporting support"
   if [[ "${ENABLE_BOT}" == "yes" ]]; then
     summary_line_done "Optional Telegram bot deployed"

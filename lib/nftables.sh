@@ -84,12 +84,22 @@ nft_input_allow_rules() {
 render_nftables_main_file() {
   local destination="$1"
   ensure_empty_cn_set_file
-  local ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations input_allow_rules
+  local ipv4_geo_rule ipv6_rule ipv6_icmp temp_v4 temp_v6 ipv6_geo_rule set_declarations input_allow_rules
+
+  if enable_ssh_geo_block; then
+    ipv4_geo_rule="ip saddr @cn_ssh_v4 tcp dport ${SSH_PORT} drop comment \"SSH CN IPv4 drop\""
+  else
+    ipv4_geo_rule=""
+  fi
 
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then
     ipv6_rule=""
     ipv6_icmp='meta nfproto ipv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert, echo-request, echo-reply, mld-listener-query, mld-listener-report, mld-listener-done } accept'
-    ipv6_geo_rule="ip6 saddr @cn_ssh_v6 tcp dport ${SSH_PORT} drop comment \"SSH CN IPv6 drop\""
+    if enable_ssh_geo_block; then
+      ipv6_geo_rule="ip6 saddr @cn_ssh_v6 tcp dport ${SSH_PORT} drop comment \"SSH CN IPv6 drop\""
+    else
+      ipv6_geo_rule=''
+    fi
   else
     ipv6_rule='meta nfproto ipv6 drop comment "IPv6 disabled by installer"'
     ipv6_icmp=''
@@ -108,7 +118,11 @@ render_nftables_main_file() {
     temp_v6=""
   fi
 
-  set_declarations="$(sed 's/^/    /' "${NFTABLES_CN_SET_FILE}")"
+  if enable_ssh_geo_block; then
+    set_declarations="$(sed 's/^/    /' "${NFTABLES_CN_SET_FILE}")"
+  else
+    set_declarations=""
+  fi
   input_allow_rules="$(nft_input_allow_rules | sed 's/^/        /')"
 
   render_template_to "${NEFLARE_SOURCE_ROOT}/templates/nftables.conf.tpl" "${destination}" \
@@ -118,6 +132,7 @@ render_nftables_main_file() {
     "IPV6_ICMP_RULE=${ipv6_icmp}" \
     "TEMP_ADMIN_ALLOW_V4_RULE=${temp_v4}" \
     "TEMP_ADMIN_ALLOW_V6_RULE=${temp_v6}" \
+    "IPV4_SSH_GEO_RULE=${ipv4_geo_rule}" \
     "IPV6_SSH_GEO_RULE=${ipv6_geo_rule}" \
     "INPUT_ALLOW_RULES=${input_allow_rules}"
 }
@@ -125,6 +140,7 @@ render_nftables_main_file() {
 prepare_temp_admin_allow_if_needed() {
   TEMP_ADMIN_ALLOW_V4=""
   TEMP_ADMIN_ALLOW_V6=""
+  enable_ssh_geo_block || return 0
   [[ -n "${CURRENT_ADMIN_SOURCE_IP:-}" ]] || return 0
   if python3 "${NEFLARE_RUNTIME_LIB_DIR}/cn_ssh_geo_update.py" --contains-ip "${CURRENT_ADMIN_SOURCE_IP}" >/dev/null; then
     if [[ "${CURRENT_ADMIN_SOURCE_FAMILY}" == "6" && "${ENABLE_IPV6}" == "yes" ]]; then
@@ -413,6 +429,7 @@ configure_nftables_firewall() {
 }
 
 update_cn_ssh_geo_sets() {
+  enable_ssh_geo_block || return 0
   mkdir_root_only "${NEFLARE_LOCK_DIR}"
   exec 9>"${NEFLARE_LOCK_DIR}/cn-ssh-geo.lock"
   flock -n 9 || die "Another CN SSH geo-block update is already running."
@@ -452,6 +469,7 @@ update_cn_ssh_geo_sets() {
 }
 
 install_cn_ssh_geo_update_units() {
+  enable_ssh_geo_block || return 0
   mkdir_system_dir /etc/systemd/system 0755
   install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-cn-ssh-geo-update.service" "/etc/systemd/system/neflare-cn-ssh-geo-update.service" 0644 root root
   install_file_atomic "${NEFLARE_SOURCE_ROOT}/systemd/neflare-cn-ssh-geo-update.timer" "/etc/systemd/system/neflare-cn-ssh-geo-update.timer" 0644 root root

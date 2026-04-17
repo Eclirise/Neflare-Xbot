@@ -16,6 +16,9 @@ set_default_config() {
   ADMIN_PUBLIC_KEY="${ADMIN_PUBLIC_KEY:-}"
   ADMIN_PUBLIC_KEY_FILE="${ADMIN_PUBLIC_KEY_FILE:-}"
   ADMIN_NOPASSWD_SUDO="${ADMIN_NOPASSWD_SUDO:-yes}"
+  MANAGE_ADMIN_USER="$(normalize_yes_no "${MANAGE_ADMIN_USER:-yes}")"
+  MANAGE_SSH_HARDENING="$(normalize_yes_no "${MANAGE_SSH_HARDENING:-yes}")"
+  ENABLE_SSH_GEO_BLOCK="$(normalize_yes_no "${ENABLE_SSH_GEO_BLOCK:-yes}")"
   SSH_PORT="${SSH_PORT:-}"
   SSH_CUTOVER_CONFIRMED="${SSH_CUTOVER_CONFIRMED:-no}"
   ENABLE_IPV6="$(normalize_yes_no "${ENABLE_IPV6:-yes}")"
@@ -103,6 +106,18 @@ enable_ss2022() {
 
 enable_time_sync() {
   [[ "${ENABLE_TIME_SYNC}" == "yes" ]]
+}
+
+manage_admin_user() {
+  [[ "${MANAGE_ADMIN_USER}" == "yes" ]]
+}
+
+manage_ssh_hardening() {
+  [[ "${MANAGE_SSH_HARDENING}" == "yes" ]]
+}
+
+enable_ssh_geo_block() {
+  [[ "${ENABLE_SSH_GEO_BLOCK}" == "yes" ]]
 }
 
 xray_features_enabled() {
@@ -999,7 +1014,13 @@ validate_protocol_settings() {
 
 validate_runtime_config() {
   validate_ssh_port "${SSH_PORT}" || die "Invalid SSH port '${SSH_PORT}'. Use 1024-65535 and not 443."
-  validate_public_key "${ADMIN_PUBLIC_KEY}" || die "Invalid SSH public key provided for admin user."
+  [[ "${MANAGE_ADMIN_USER}" == "yes" || "${MANAGE_ADMIN_USER}" == "no" ]] || die "MANAGE_ADMIN_USER must be yes or no."
+  [[ "${MANAGE_SSH_HARDENING}" == "yes" || "${MANAGE_SSH_HARDENING}" == "no" ]] || die "MANAGE_SSH_HARDENING must be yes or no."
+  [[ "${ENABLE_SSH_GEO_BLOCK}" == "yes" || "${ENABLE_SSH_GEO_BLOCK}" == "no" ]] || die "ENABLE_SSH_GEO_BLOCK must be yes or no."
+  if manage_admin_user || manage_ssh_hardening; then
+    validate_public_key "${ADMIN_PUBLIC_KEY}" || die "Invalid SSH public key provided for admin user."
+    [[ -n "${ADMIN_USER}" ]] || die "ADMIN_USER must not be empty when MANAGE_ADMIN_USER=yes or MANAGE_SSH_HARDENING=yes."
+  fi
   [[ "${ENABLE_IPV6}" == "yes" || "${ENABLE_IPV6}" == "no" ]] || die "ENABLE_IPV6 must be yes or no."
   [[ "${ENABLE_BOT}" == "yes" || "${ENABLE_BOT}" == "no" ]] || die "ENABLE_BOT must be yes or no."
   [[ "${ENABLE_DOCKER_TESTS}" == "yes" || "${ENABLE_DOCKER_TESTS}" == "no" ]] || die "ENABLE_DOCKER_TESTS must be yes or no."
@@ -1048,6 +1069,9 @@ write_installed_config_file() {
     "ADMIN_USER=${ADMIN_USER}" \
     "ADMIN_PUBLIC_KEY=${ADMIN_PUBLIC_KEY}" \
     "ADMIN_NOPASSWD_SUDO=${ADMIN_NOPASSWD_SUDO}" \
+    "MANAGE_ADMIN_USER=${MANAGE_ADMIN_USER}" \
+    "MANAGE_SSH_HARDENING=${MANAGE_SSH_HARDENING}" \
+    "ENABLE_SSH_GEO_BLOCK=${ENABLE_SSH_GEO_BLOCK}" \
     "SSH_PORT=${SSH_PORT}" \
     "SSH_CUTOVER_CONFIRMED=${SSH_CUTOVER_CONFIRMED}" \
     "ENABLE_IPV6=${ENABLE_IPV6}" \
@@ -1148,10 +1172,14 @@ collect_install_config() {
     SSH_PORT="$(generate_random_high_port)"
   fi
   if [[ -z "${ADMIN_USER}" ]]; then
-    ADMIN_USER="$(guess_default_admin_user)"
+    if manage_admin_user || manage_ssh_hardening; then
+      ADMIN_USER="$(guess_default_admin_user)"
+    fi
   fi
   if [[ -z "${ADMIN_PUBLIC_KEY}" ]]; then
-    ADMIN_PUBLIC_KEY="$(guess_public_key_from_system)"
+    if manage_admin_user || manage_ssh_hardening; then
+      ADMIN_PUBLIC_KEY="$(guess_public_key_from_system)"
+    fi
   fi
   resolve_network_defaults
   if [[ "${ENABLE_BOT}" == "yes" && -n "${BOT_TOKEN}" && -z "${CHAT_ID}" && -z "${BOT_BIND_TOKEN}" ]]; then

@@ -140,17 +140,25 @@ main() {
   install_base_packages
   install_runtime_assets
   configure_time_sync_runtime
-  ensure_admin_user
-  configure_ssh_hardening
+  if manage_admin_user; then
+    ensure_admin_user
+  fi
+  if manage_ssh_hardening; then
+    configure_ssh_hardening
+  fi
   ensure_xray_installed_if_needed
   prepare_vless_reality_runtime
   configure_ipv6_mode
-  prepare_temp_admin_allow_if_needed
+  if enable_ssh_geo_block; then
+    prepare_temp_admin_allow_if_needed
+  fi
   configure_xray_runtime
   configure_hysteria2_runtime
   configure_nftables_firewall
-  update_cn_ssh_geo_sets
-  install_cn_ssh_geo_update_units
+  if enable_ssh_geo_block; then
+    update_cn_ssh_geo_sets
+    install_cn_ssh_geo_update_units
+  fi
   enable_bbr_if_supported
   configure_optional_docker_tests_runtime
   configure_optional_bot

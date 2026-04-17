@@ -19,7 +19,7 @@ __CN_SET_DECLARATIONS__
         __TEMP_ADMIN_ALLOW_V4_RULE__
         __TEMP_ADMIN_ALLOW_V6_RULE__
 
-        ip saddr @cn_ssh_v4 tcp dport __SSH_PORT__ drop comment "SSH CN IPv4 drop"
+        __IPV4_SSH_GEO_RULE__
         __IPV6_SSH_GEO_RULE__
 
         # Listener allow rules must stay above any terminal drop/reject logic.

@@ -20,6 +20,7 @@ set_default_config() {
   MANAGE_SSH_HARDENING="$(normalize_yes_no "${MANAGE_SSH_HARDENING:-yes}")"
   ENABLE_SSH_GEO_BLOCK="$(normalize_yes_no "${ENABLE_SSH_GEO_BLOCK:-yes}")"
   SSH_PORT="${SSH_PORT:-}"
+  SSH_PUBLIC_PORT="${SSH_PUBLIC_PORT:-}"
   SSH_CUTOVER_CONFIRMED="${SSH_CUTOVER_CONFIRMED:-no}"
   ENABLE_IPV6="$(normalize_yes_no "${ENABLE_IPV6:-yes}")"
   ALLOW_IPV6_DISABLE_FROM_IPV6="$(normalize_yes_no "${ALLOW_IPV6_DISABLE_FROM_IPV6:-no}")"
@@ -118,6 +119,10 @@ manage_ssh_hardening() {
 
 enable_ssh_geo_block() {
   [[ "${ENABLE_SSH_GEO_BLOCK}" == "yes" ]]
+}
+
+effective_ssh_public_port() {
+  printf '%s\n' "${SSH_PUBLIC_PORT:-${SSH_PORT}}"
 }
 
 xray_features_enabled() {
@@ -1013,7 +1018,14 @@ validate_protocol_settings() {
 }
 
 validate_runtime_config() {
-  validate_ssh_port "${SSH_PORT}" || die "Invalid SSH port '${SSH_PORT}'. Use 1024-65535 and not 443."
+  if manage_ssh_hardening; then
+    validate_ssh_port "${SSH_PORT}" || die "Invalid SSH port '${SSH_PORT}'. Use 1024-65535 and not 443."
+  else
+    validate_tcp_port "${SSH_PORT}" || die "Invalid unmanaged local SSH port '${SSH_PORT}'. Use 1-65535."
+  fi
+  if [[ -n "${SSH_PUBLIC_PORT}" ]]; then
+    validate_tcp_port "${SSH_PUBLIC_PORT}" || die "Invalid SSH_PUBLIC_PORT '${SSH_PUBLIC_PORT}'. Use 1-65535."
+  fi
   [[ "${MANAGE_ADMIN_USER}" == "yes" || "${MANAGE_ADMIN_USER}" == "no" ]] || die "MANAGE_ADMIN_USER must be yes or no."
   [[ "${MANAGE_SSH_HARDENING}" == "yes" || "${MANAGE_SSH_HARDENING}" == "no" ]] || die "MANAGE_SSH_HARDENING must be yes or no."
   [[ "${ENABLE_SSH_GEO_BLOCK}" == "yes" || "${ENABLE_SSH_GEO_BLOCK}" == "no" ]] || die "ENABLE_SSH_GEO_BLOCK must be yes or no."
@@ -1073,6 +1085,7 @@ write_installed_config_file() {
     "MANAGE_SSH_HARDENING=${MANAGE_SSH_HARDENING}" \
     "ENABLE_SSH_GEO_BLOCK=${ENABLE_SSH_GEO_BLOCK}" \
     "SSH_PORT=${SSH_PORT}" \
+    "SSH_PUBLIC_PORT=${SSH_PUBLIC_PORT}" \
     "SSH_CUTOVER_CONFIRMED=${SSH_CUTOVER_CONFIRMED}" \
     "ENABLE_IPV6=${ENABLE_IPV6}" \
     "ALLOW_IPV6_DISABLE_FROM_IPV6=${ALLOW_IPV6_DISABLE_FROM_IPV6}" \

@@ -184,9 +184,9 @@ print_cloud_firewall_guidance() {
   echo "- Inbound default: DROP"
   echo "- Outbound default: ACCEPT"
   if manage_ssh_hardening; then
-    echo "- Allow TCP/${SSH_PORT} from your admin source(s)"
+    echo "- Allow TCP/$(effective_ssh_public_port) from your admin source(s)"
   else
-    echo "- Allow TCP/${SSH_PORT} according to your existing SSH access policy"
+    echo "- Allow TCP/$(effective_ssh_public_port) according to your existing SSH access policy"
   fi
   if enable_vless_reality; then
     echo "- Allow TCP/${XRAY_LISTEN_PORT} from anywhere for VLESS+REALITY"
@@ -330,9 +330,9 @@ print_final_summary_lists() {
   summary_heading "Done:"
   summary_line_done "Debian ${DISTRO_VERSION_ID} support with explicit Debian-only detection"
   if manage_ssh_hardening; then
-    summary_line_done "Hardened SSH on persisted port ${SSH_PORT} with root/password login disabled"
+    summary_line_done "Hardened SSH on persisted port $(effective_ssh_public_port) with root/password login disabled"
   else
-    summary_line_done "Left existing SSH configuration unchanged on port ${SSH_PORT}"
+    summary_line_done "Left existing SSH configuration unchanged on local TCP/${SSH_PORT} (public TCP/$(effective_ssh_public_port))"
   fi
   summary_line_done "nftables default-drop inbound policy with only the enabled listener set allowed"
   if [[ "${ENABLE_IPV6}" == "yes" ]]; then

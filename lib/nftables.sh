@@ -239,6 +239,15 @@ nft_rule_matches_inbound_listener_text() {
     [[ "${line}" == *" icmp type "* || "${line}" == ip\ protocol\ icmp* ]] && return 1
   fi
 
+  # Generic listener checks should only consider rules that broadly expose a
+  # port, not address-scoped allow/drop rules such as CN SSH geo-blocking.
+  if [[ "${line}" == ip\ saddr\ * || "${line}" == *" ip saddr "* || "${line}" == *" ip daddr "* ]]; then
+    return 1
+  fi
+  if [[ "${line}" == ip6\ saddr\ * || "${line}" == *" ip6 saddr "* || "${line}" == *" ip6 daddr "* ]]; then
+    return 1
+  fi
+
   case "${protocol}" in
     tcp)
       [[ "${line}" == *"udp dport"* || "${line}" == *"udp sport"* ]] && return 1

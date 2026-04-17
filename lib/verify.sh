@@ -192,6 +192,25 @@ print_cloud_firewall_guidance() {
   fi
 }
 
+hydrate_client_snippet_defaults() {
+  if [[ -z "${SERVER_PUBLIC_ENDPOINT}" ]]; then
+    SERVER_PUBLIC_ENDPOINT="$(detect_public_ipv4 || true)"
+  fi
+
+  if enable_ss2022 && [[ -z "${SS2022_PASSWORD}" ]] && [[ -f "${XRAY_CONFIG_PATH}" ]]; then
+    SS2022_PASSWORD="$(
+      jq -r \
+        --argjson port "${SS2022_LISTEN_PORT}" \
+        '
+        .inbounds[]?
+        | select(.protocol == "shadowsocks" and (.port | tonumber) == $port)
+        | .settings.password // empty
+        ' \
+        "${XRAY_CONFIG_PATH}" 2>/dev/null | head -n1
+    )"
+  fi
+}
+
 print_client_yaml_snippet() {
   if ! enable_vless_reality && ! enable_hysteria2 && ! enable_ss2022; then
     echo "# No proxy protocols are enabled; no Clash Meta snippet is available."
@@ -200,6 +219,7 @@ print_client_yaml_snippet() {
   if xray_features_enabled; then
     assert_xray_runtime_ready "${XRAY_CONFIG_PATH}" no
   fi
+  hydrate_client_snippet_defaults
 
   cat <<EOF
 proxies:

@@ -417,6 +417,45 @@ detect_route_source_ip() {
   fi
 }
 
+ipv4_is_public() {
+  local candidate="${1:-}"
+  [[ -n "${candidate}" ]] || return 1
+  python3 - "${candidate}" <<'PY'
+import ipaddress
+import sys
+
+try:
+    addr = ipaddress.ip_address(sys.argv[1].strip())
+except ValueError:
+    raise SystemExit(1)
+
+if addr.version != 4:
+    raise SystemExit(1)
+
+raise SystemExit(0 if addr.is_global else 1)
+PY
+}
+
+detect_public_ipv4() {
+  local candidate=""
+
+  candidate="$(detect_route_source_ip 4)"
+  if ipv4_is_public "${candidate}"; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+
+  if command_exists dig; then
+    candidate="$(dig +short +time=2 +tries=1 myip.opendns.com @resolver1.opendns.com 2>/dev/null | tail -n1)"
+    if ipv4_is_public "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 generate_random_high_port() {
   local candidate
   while true; do

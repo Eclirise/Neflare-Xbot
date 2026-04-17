@@ -1035,7 +1035,7 @@ resolve_network_defaults() {
   NETWORK_INTERFACE="${NETWORK_INTERFACE:-$(detect_primary_interface)}"
   [[ -n "${NETWORK_INTERFACE}" ]] || die "Unable to determine the primary network interface."
   if [[ -z "${SERVER_PUBLIC_ENDPOINT}" ]]; then
-    SERVER_PUBLIC_ENDPOINT="$(detect_route_source_ip 4)"
+    SERVER_PUBLIC_ENDPOINT="$(detect_public_ipv4 || true)"
   fi
   REPORT_TZ="${REPORT_TZ:-$(detect_default_timezone)}"
 }

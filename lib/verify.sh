@@ -7,7 +7,7 @@ verify_os_support() {
 verify_ssh_state() {
   validate_sshd_config >/dev/null || die "sshd configuration validation failed."
   local active_port root_login password_auth sshd_effective
-  sshd_effective="$(sshd -T)" || die "Failed to read effective sshd configuration."
+  sshd_effective="$("$(sshd_binary_path)" -T)" || die "Failed to read effective sshd configuration."
   active_port="$(awk '/^port / {print $2; exit}' <<<"${sshd_effective}")"
   [[ "${active_port}" == "${SSH_PORT}" ]] || die "sshd active port '${active_port}' does not match configured SSH_PORT '${SSH_PORT}'."
   if ! manage_ssh_hardening; then

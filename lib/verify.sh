@@ -213,11 +213,13 @@ hydrate_client_snippet_defaults() {
       jq -r \
         --argjson port "${SS2022_LISTEN_PORT}" \
         '
-        .inbounds[]?
-        | select(.protocol == "shadowsocks" and (.port | tonumber) == $port)
-        | .settings.password // empty
+        [
+          .inbounds[]?
+          | select(.protocol == "shadowsocks" and (.port | tonumber) == $port)
+          | .settings.password // empty
+        ][0] // empty
         ' \
-        "${XRAY_CONFIG_PATH}" 2>/dev/null | head -n1
+        "${XRAY_CONFIG_PATH}" 2>/dev/null
     )"
   fi
 }

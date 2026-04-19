@@ -31,7 +31,7 @@ xray_version_string() {
     printf 'not-installed\n'
     return 0
   fi
-  xray version 2>/dev/null | head -n 1 | awk '{print $2}'
+  xray version 2>/dev/null | awk 'NR == 1 {print $2; exit}'
 }
 
 parse_xray_x25519_output() {

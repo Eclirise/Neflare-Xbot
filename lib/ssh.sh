@@ -13,10 +13,10 @@ detect_current_admin_source() {
     CURRENT_ADMIN_SOURCE_IP="$(awk '{print $1}' <<<"${SSH_CONNECTION}")"
   fi
   if [[ -z "${CURRENT_ADMIN_SOURCE_IP}" ]]; then
-    CURRENT_ADMIN_SOURCE_IP="$(who -m 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p' | head -n1 || true)"
+    CURRENT_ADMIN_SOURCE_IP="$(who -m 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p; q' || true)"
   fi
   if [[ -z "${CURRENT_ADMIN_SOURCE_IP}" ]]; then
-    CURRENT_ADMIN_SOURCE_IP="$(who am i 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p' | head -n1 || true)"
+    CURRENT_ADMIN_SOURCE_IP="$(who am i 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p; q' || true)"
   fi
   if [[ -n "${CURRENT_ADMIN_SOURCE_IP}" ]]; then
     if [[ "${CURRENT_ADMIN_SOURCE_IP}" == *:* ]]; then

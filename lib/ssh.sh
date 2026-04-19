@@ -32,8 +32,24 @@ detect_current_admin_source() {
 
 detect_current_sshd_primary_port() {
   local port
-  port="$(sshd -T 2>/dev/null | awk '/^port / {print $2; exit}')"
+  port="$("$(sshd_binary_path)" -T 2>/dev/null | awk '/^port / {print $2; exit}')"
   printf '%s\n' "${port:-22}"
+}
+
+sshd_binary_path() {
+  local candidate=""
+  candidate="$(command -v sshd 2>/dev/null || true)"
+  if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+  for candidate in /usr/sbin/sshd /usr/bin/sshd /sbin/sshd; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  die "sshd was not found. Install openssh-server correctly before continuing."
 }
 
 user_home_dir() {
@@ -103,7 +119,7 @@ render_sshd_dropin() {
 }
 
 validate_sshd_config() {
-  sshd -t
+  "$(sshd_binary_path)" -t
 }
 
 reload_sshd_or_rollback() {

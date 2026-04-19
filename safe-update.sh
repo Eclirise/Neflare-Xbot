@@ -17,6 +17,25 @@ rerun_command() {
   printf 'sudo bash ./install.sh --config /etc/neflare/neflare.env --non-interactive\n'
 }
 
+normalize_repo_script_modes() {
+  local patterns=(
+    "./install.sh"
+    "./safe-update.sh"
+    "./uninstall.sh"
+    "./refresh-managed-tuning.sh"
+    "./verify/*.sh"
+  )
+  local path
+  shopt -s nullglob
+  for pattern in "${patterns[@]}"; do
+    for path in ${pattern}; do
+      [[ -f "${path}" ]] || continue
+      chmod 0755 "${path}"
+    done
+  done
+  shopt -u nullglob
+}
+
 pick_backup_root() {
   local preferred="${NEFLARE_UPDATE_BACKUP_DIR:-/var/backups/neflare/repo-hotfixes}"
   if mkdir -p "${preferred}" >/dev/null 2>&1; then
@@ -117,6 +136,10 @@ force_sync() {
   git -C "${REPO_DIR}" checkout -f "${branch}"
   git -C "${REPO_DIR}" reset --hard "${upstream}"
   git -C "${REPO_DIR}" clean -fd
+  (
+    cd "${REPO_DIR}"
+    normalize_repo_script_modes
+  )
 
   echo "Checkout is now aligned to ${upstream}."
   echo "Next step:"

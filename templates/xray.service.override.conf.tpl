@@ -15,3 +15,4 @@ LockPersonality=yes
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitNOFILE=1048576
